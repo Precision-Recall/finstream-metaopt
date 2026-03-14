@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import pandas as pd
 import joblib
 from xgboost import XGBClassifier
@@ -26,20 +27,23 @@ def load_window(filepath, start, end):
     
     # Sort chronologically by Date
     df_filtered = df_filtered.sort_values(by='Date').reset_index(drop=True)
+    
+    # XGBoost raises error for inf values when missing parameter is not configured explicitly to handle it
+    # We replace inf / -inf with NaN, which xgboost handles natively
+    df_filtered.replace([np.inf, -np.inf], np.nan, inplace=True)
     return df_filtered
 
 def train_model(X_train, y_train):
-    """
-    Train an XGBoost model with fixed parameters.
-    """
     model = XGBClassifier(
         max_depth=3,
-        learning_rate=0.05,
-        n_estimators=100,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        min_child_weight=5,
-        use_label_encoder=False,
+        learning_rate=0.03,      # slower learning than before
+        n_estimators=1000,        # fixed, no early stopping
+        subsample=0.7,
+        colsample_bytree=0.7,
+        min_child_weight=3,
+        gamma=1,                 # minimum loss reduction to split
+        reg_alpha=0.1,           # L1 regularization
+        reg_lambda=1.0,          # L2 regularization
         eval_metric='logloss',
         random_state=42
     )
