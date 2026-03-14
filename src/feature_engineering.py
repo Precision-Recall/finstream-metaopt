@@ -37,6 +37,9 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     
     # Volume change % (today's volume over yesterday's)
     df_feat['Volume_Change_Pct'] = df_feat['Volume'].pct_change()
+    df_feat['Volume_Change_Pct'] = df_feat['Volume_Change_Pct'].replace([np.inf, -np.inf], np.nan)
+    df_feat['Volume_Change_Pct'] = df_feat['Volume_Change_Pct'].fillna(0)
+    df_feat['Volume_Change_Pct'] = df_feat['Volume_Change_Pct'].clip(-2, 2)  # cap at ±200%
     
     # Yesterday's return
     df_feat['Yesterday_Return'] = df_feat['Close'].pct_change().shift(1)
