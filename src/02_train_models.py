@@ -2,9 +2,12 @@ import os
 import numpy as np
 import pandas as pd
 import joblib
+from datetime import datetime
 from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from tqdm import tqdm
+
+from src.firebase_client import FirebaseClient
 
 FEATURES = [
     'RSI_14', 'MACD', 'MACD_Signal', 'MACD_Diff',
@@ -70,6 +73,19 @@ def save_model(model, path):
     joblib.dump(model, path)
     # Print statement removed to avoid messing up tqdm progress bar
 
+def push_model_registry(results: list) -> None:
+    """Push trained model metadata to Firebase."""
+    client = FirebaseClient()
+    for name, period, acc, f1 in results:
+        client.save_document('model_registry', name.lower().replace(' ', '_'), {
+            'model_name': name,
+            'train_period': period,
+            'val_accuracy': round(float(acc), 4),
+            'f1_score': round(float(f1), 4),
+            'trained_at': datetime.now().isoformat()
+        })
+    print("✓ Model registry pushed to Firebase")
+
 def main():
     filepath = 'data/processed/train.csv'
     
@@ -116,6 +132,12 @@ def main():
     for res in results:
         print(f"{res[0]:<15} | {res[1]:<25} | {res[2]:<12.4f} | {res[3]:<8.4f}")
     print("="*70 + "\n")
+    
+    # Push model registry to Firebase
+    try:
+        push_model_registry(results)
+    except Exception as e:
+        print(f"Firebase push failed (non-fatal): {e}")
 
 if __name__ == '__main__':
     main()

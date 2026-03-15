@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adaptive ML Dashboard — NIFTY50</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <!-- Header -->
+    <header class="app-header">
+        <div class="header-content">
+            <h1 class="app-title">Adaptive ML Dashboard</h1>
+            <div class="header-status">
+                <span class="live-dot"></span>
+                <small id="firebaseStatus">Connecting...</small>
+                <small id="lastUpdated"></small>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs">
+        <button class="nav-tab active" data-tab="live">Live</button>
+        <button class="nav-tab" data-tab="overview">Overview</button>
+        <button class="nav-tab" data-tab="accuracy">Accuracy</button>
+        <button class="nav-tab" data-tab="weights">Weights</button>
+        <button class="nav-tab" data-tab="nifty50">NIFTY50</button>
+        <button class="nav-tab" data-tab="pso">PSO Shifts</button>
+        <button class="nav-tab" data-tab="drift">Drift Events</button>
+        <button class="nav-tab" data-tab="models">Model Registry</button>
+    </nav>
+
+    <!-- Tab Content -->
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/live.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

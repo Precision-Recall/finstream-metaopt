@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adaptive ML Dashboard — Model Drift Handling</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- HEADER                                                  -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    
+    <header class="app-header">
+        <div class="header-content">
+            <div class="app-title">📊 Adaptive ML Dashboard</div>
+            <div class="header-status">
+                <div class="live-dot"></div>
+                <span>Live — Updated 5s ago</span>
+            </div>
+        </div>
+    </header>
+    
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- NAVIGATION                                              -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    
+    <nav class="nav-tabs">
+        <button class="nav-tab active" data-tab="overview">Overview</button>
+        <button class="nav-tab" data-tab="realtime">Real-time Stream</button>
+        <button class="nav-tab" data-tab="drift">Drift Analysis</button>
+        <button class="nav-tab" data-tab="metrics">Model Metrics</button>
+    </nav>
+    
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- MAIN CONTENT                                            -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    
+    <main class="main-content">
+        
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- OVERVIEW TAB                                       -->
+        <!-- ══════════════════════════════════════════════════ -->
+        
+        <section id="overview-section" class="tab-section active">
+            <div class="section-header">
+                <h2>Overview</h2>
+                <small>Baseline evaluation: 2024-01-01 to 2024-01-10</small>
+            </div>
+            
+            <!-- Baseline Performance Stats -->
+            <div class="stat-cards">
+                <div class="stat-card">
+                    <div class="stat-label">Accuracy</div>
+                    <div class="stat-value" id="accuracy-value">—</div>
+                    <div class="stat-meta">Baseline score on test set</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">F1-Score</div>
+                    <div class="stat-value" id="f1-value">—</div>
+                    <div class="stat-meta">Harmonic mean of precision and recall</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Precision</div>
+                    <div class="stat-value" id="precision-value">—</div>
+                    <div class="stat-meta">Quality of positive predictions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Recall</div>
+                    <div class="stat-value" id="recall-value">—</div>
+                    <div class="stat-meta">Coverage of actual positive cases</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">AUC-ROC</div>
+                    <div class="stat-value" id="auc-value">—</div>
+                    <div class="stat-meta">Threshold-independent performance</div>
+                </div>
+            </div>
+            
+            <!-- Drift Detection Stats -->
+            <div class="stat-cards">
+                <div class="stat-card">
+                    <div class="stat-label">Drift Events Detected</div>
+                    <div class="stat-value" id="drift-events-value">—</div>
+                    <div class="stat-meta">Since baseline period</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Detection Rate</div>
+                    <div class="stat-value" id="detection-rate-value">—</div>
+                    <div class="stat-meta">As proportion of predictions</div>
+                </div>
+            </div>
+            
+            <!-- Charts -->
+            <div class="two-col">
+                <div class="chart-card">
+                    <h3>Performance Radar</h3>
+                    <canvas id="performanceChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <h3>Confusion Matrix</h3>
+                    <canvas id="confusionChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-card">
+                <h3>Council Contribution</h3>
+                <canvas id="councilChart"></canvas>
+            </div>
+        </section>
+        
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- REAL-TIME STREAM TAB                               -->
+        <!-- ══════════════════════════════════════════════════ -->
+        
+        <section id="realtime-section" class="tab-section">
+            <div class="section-header">
+                <h2>Real-time Stream Monitoring</h2>
+                <small>Live predictions from adaptive model council</small>
+            </div>
+            
+            <!-- Stream Stats -->
+            <div class="stat-cards">
+                <div class="stat-card">
+                    <div class="stat-label">Total Predictions</div>
+                    <div class="stat-value" id="stream-predictions">—</div>
+                    <div class="stat-meta">Since stream started</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Avg Confidence</div>
+                    <div class="stat-value" id="stream-confidence">—</div>
+                    <div class="stat-meta">Model confidence in predictions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Throughput</div>
+                    <div class="stat-value" id="stream-throughput">—</div>
+                    <div class="stat-meta">Predictions per minute</div>
+                </div>
+            </div>
+            
+            <!-- Stream Charts -->
+            <div class="two-col">
+                <div class="chart-card">
+                    <h3>Prediction Rate Over Time</h3>
+                    <canvas id="streamChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <h3>Confidence Distribution</h3>
+                    <canvas id="confidenceChart"></canvas>
+                </div>
+            </div>
+        </section>
+        
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- DRIFT ANALYSIS TAB                                 -->
+        <!-- ══════════════════════════════════════════════════ -->
+        
+        <section id="drift-section" class="tab-section">
+            <div class="section-header">
+                <h2>Drift Analysis</h2>
+                <small>Detected distribution shifts and concept changes</small>
+            </div>
+            
+            <!-- Drift Summary -->
+            <div class="stat-cards">
+                <div class="stat-card">
+                    <div class="stat-label">Total Drift Events</div>
+                    <div class="stat-value" id="drift-total">—</div>
+                    <div class="stat-meta">Cumulative detections</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Latest Event</div>
+                    <div class="stat-value" id="drift-latest" style="font-size: 0.9em;">—</div>
+                    <div class="stat-meta">Most recent drift detection</div>
+                </div>
+            </div>
+            
+            <!-- Drift Timeline -->
+            <div class="chart-card">
+                <h3>Drift Timeline</h3>
+                <canvas id="driftTimelineChart"></canvas>
+            </div>
+            
+            <!-- Drift Events Table -->
+            <div class="chart-card">
+                <h4>Recent Drift Events</h4>
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Type</th>
+                                <th>Feature</th>
+                                <th>Magnitude</th>
+                                <th>Severity</th>
+                            </tr>
+                        </thead>
+                        <tbody id="driftTable">
+                            <tr>
+                                <td colspan="5" style="text-align: center; color: #8892a8;">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Pagination -->
+                <div class="pagination">
+                    <button id="driftPrevBtn" class="btn-small">← Previous</button>
+                    <span id="driftPageNum" style="font-family: monospace;">Page 1 of 1</span>
+                    <button id="driftNextBtn" class="btn-small">Next →</button>
+                </div>
+            </div>
+        </section>
+        
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- METRICS TAB                                        -->
+        <!-- ══════════════════════════════════════════════════ -->
+        
+        <section id="metrics-section" class="tab-section">
+            <div class="section-header">
+                <h2>Model Metrics</h2>
+                <small>Performance comparison and feature importance analysis</small>
+            </div>
+            
+            <!-- Model Comparison -->
+            <div class="chart-card">
+                <h3>Model Performance Comparison</h3>
+                <canvas id="modelComparisonChart"></canvas>
+                <div class="chart-legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #10b981;"></div>
+                        <span>LightGBM (35%)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #3b82f6;"></div>
+                        <span>XGBoost (28%)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #f59e0b;"></div>
+                        <span>Neural Network (22%)</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Feature Importance -->
+            <div class="two-col">
+                <div class="chart-card">
+                    <h3>Top Feature Importance</h3>
+                    <canvas id="featureImportanceChart"></canvas>
+                </div>
+                
+                <div class="chart-card">
+                    <h3>Council Model Weights</h3>
+                    <canvas id="councilWeightsCanvas"></canvas>
+                </div>
+            </div>
+        </section>
+        
+    </main>
+    
+    <!-- Scripts -->
+    <script src="js/app.js"></script>
+    
+</body>
+</html>
