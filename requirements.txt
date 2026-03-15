@@ -2,3 +2,13 @@ yfinance
 pandas
 numpy
 ta
+scikit-learn
+xgboost
+joblib
+tqdm
+river
+python-dotenv
+apscheduler
+requests
+pytz
+
