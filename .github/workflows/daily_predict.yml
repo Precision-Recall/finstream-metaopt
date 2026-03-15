@@ -1,0 +1,29 @@
+name: Daily NIFTY50 Prediction
+
+on:
+  schedule:
+    - cron: '0 4 * * 1-5'    # 04:00 UTC = 09:30 IST, weekdays only
+  workflow_dispatch:           # allows manual trigger from GitHub UI
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger daily prediction
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "X-Cron-Token: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.RENDER_URL }}/run/predict")
+          echo "HTTP Status: $response"
+          if [ "$response" != "200" ]; then
+            echo "Prediction job failed with status $response"
+            exit 1
+          fi
+          echo "Prediction job completed successfully"
+
+      - name: Log result
+        if: always()
+        run: echo "Job ran at $(date -u)"

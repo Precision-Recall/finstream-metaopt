@@ -3,11 +3,14 @@ Flask Dashboard Application for Adaptive ML System
 Fetches data from Firebase via REST API
 """
 
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from dotenv import load_dotenv
 import requests
 import os
 import logging
+import importlib
+from datetime import datetime
+from functools import wraps
 
 load_dotenv()
 
@@ -24,6 +27,18 @@ BASE_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases
 app = Flask(__name__,
             static_folder='../static',
             template_folder='../templates')
+
+# CRON authentication
+CRON_SECRET = os.getenv('CRON_SECRET', '')
+
+def require_cron_token(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('X-Cron-Token', '')
+        if not CRON_SECRET or token != CRON_SECRET:
+            return jsonify({'error': 'unauthorized'}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 # ═══════════════════════════════════════════════════════
 # SYSTEM CONFIGURATION (Mirrored from Core Logic)
@@ -188,6 +203,38 @@ def api_live_evaluations():
     parsed = [parse(d) for d in docs if parse(d)]
     parsed.sort(key=lambda x: str(x.get('date', '')), reverse=True)
     return jsonify(parsed[:30])
+
+@app.route('/run/predict', methods=['GET', 'POST'])
+@require_cron_token
+def run_predict():
+    """Trigger daily prediction job."""
+    try:
+        scheduler_module = importlib.import_module('src.07_scheduler')
+        initialize_system = scheduler_module.initialize_system
+        daily_predict = scheduler_module.daily_predict
+        initialize_system()
+        daily_predict()
+        return jsonify({'status': 'ok', 'job': 'predict',
+                        'timestamp': datetime.now().isoformat()})
+    except Exception as e:
+        logging.error(f"Predict job error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/run/evaluate', methods=['GET', 'POST'])
+@require_cron_token
+def run_evaluate():
+    """Trigger daily evaluation job."""
+    try:
+        scheduler_module = importlib.import_module('src.07_scheduler')
+        initialize_system = scheduler_module.initialize_system
+        daily_evaluate = scheduler_module.daily_evaluate
+        initialize_system()
+        daily_evaluate()
+        return jsonify({'status': 'ok', 'job': 'evaluate',
+                        'timestamp': datetime.now().isoformat()})
+    except Exception as e:
+        logging.error(f"Evaluate job error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

@@ -69,6 +69,7 @@ ALL_FEATURES = [
 ]
 
 # Global state (loaded at startup)
+_system_initialized = False
 models = None
 firebase_client = None
 council = None
@@ -80,9 +81,13 @@ ensemble_weights = None
 def initialize_system():
     """
     Load models, initialize Firebase client, and restore state.
-    Called once at startup.
+    Called once at startup or when importing from Flask.
+    Uses guard flag to prevent re-initialization.
     """
-    global models, firebase_client, council, adwin, active_features, ensemble_weights
+    global models, firebase_client, council, adwin, active_features, ensemble_weights, _system_initialized
+    
+    if _system_initialized:
+        return  # Already initialized, skip
     
     logger.info("Initializing adaptive ML system...")
     
@@ -131,6 +136,7 @@ def initialize_system():
         ensemble_weights = [1/3, 1/3, 1/3]
         logger.info("✓ Initialized with default state (Firebase unavailable)")
     
+    _system_initialized = True
     logger.info("System initialization complete")
 
 
