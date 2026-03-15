@@ -1,0 +1,29 @@
+name: Daily NIFTY50 Evaluation
+
+on:
+  schedule:
+    - cron: '5 4 * * 1-5'    # 04:05 UTC = 09:35 IST, weekdays only
+  workflow_dispatch:           # allows manual trigger from GitHub UI
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger daily evaluation
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "X-Cron-Token: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.RENDER_URL }}/run/evaluate")
+          echo "HTTP Status: $response"
+          if [ "$response" != "200" ]; then
+            echo "Evaluate job failed with status $response"
+            exit 1
+          fi
+          echo "Evaluation job completed successfully"
+
+      - name: Log result
+        if: always()
+        run: echo "Job ran at $(date -u)"
