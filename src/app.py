@@ -177,64 +177,196 @@ def api_model_registry():
 @app.route('/api/live/state')
 def api_live_state():
     """Get current live model state."""
-    doc = fs_get('system/current')
-    return jsonify(parse(doc) or {})
+    try:
+        doc = fs_get('system/current')
+        data = parse(doc) or {}
+        logger.info(f"✓ Retrieved live state: {list(data.keys())}")
+        return jsonify(data)
+    except Exception as e:
+        logger.error(f"✗ Error fetching live state: {e}")
+        return jsonify({}), 500
 
 @app.route('/api/live/predictions')
 def api_live_predictions():
     """Get recent live predictions."""
-    docs = fs_list('predictions', page_size=100)
-    parsed = [parse(d) for d in docs if parse(d)]
-    parsed.sort(key=lambda x: str(x.get('date', '')), reverse=True)
-    return jsonify(parsed[:20])
+    try:
+        docs = fs_list('predictions', page_size=100)
+        parsed = [parse(d) for d in docs if parse(d)]
+        logger.info(f"✓ Retrieved {len(parsed)} live predictions")
+        parsed.sort(key=lambda x: str(x.get('date', '')), reverse=True)
+        return jsonify(parsed[:20])
+    except Exception as e:
+        logger.error(f"✗ Error fetching live predictions: {e}")
+        return jsonify([]), 500
 
 @app.route('/api/live/drift')
 def api_live_drift():
     """Get live drift events."""
-    docs = fs_list('drift_events', page_size=100)
-    parsed = [parse(d) for d in docs if parse(d)]
-    parsed.sort(key=lambda x: str(x.get('date', '')), reverse=True)
-    return jsonify(parsed[:10])
+    try:
+        docs = fs_list('drift_events', page_size=100)
+        parsed = [parse(d) for d in docs if parse(d)]
+        logger.info(f"✓ Retrieved {len(parsed)} live drift events")
+        parsed.sort(key=lambda x: str(x.get('date', '')), reverse=True)
+        return jsonify(parsed[:10])
+    except Exception as e:
+        logger.error(f"✗ Error fetching live drift events: {e}")
+        return jsonify([]), 500
 
 @app.route('/api/live/evaluations')
 def api_live_evaluations():
     """Get recent evaluations."""
-    docs = fs_list('evaluations', page_size=100)
-    parsed = [parse(d) for d in docs if parse(d)]
-    parsed.sort(key=lambda x: str(x.get('date', '')), reverse=True)
-    return jsonify(parsed[:30])
+    try:
+        docs = fs_list('evaluations', page_size=100)
+        parsed = [parse(d) for d in docs if parse(d)]
+        logger.info(f"✓ Retrieved {len(parsed)} live evaluations")
+        parsed.sort(key=lambda x: str(x.get('date', '')), reverse=True)
+        return jsonify(parsed[:30])
+    except Exception as e:
+        logger.error(f"✗ Error fetching live evaluations: {e}")
+        return jsonify([]), 500
 
 @app.route('/run/predict', methods=['GET', 'POST'])
 @require_cron_token
 def run_predict():
     """Trigger daily prediction job."""
     try:
+        logger.info("=" * 60)
+        logger.info("INCOMING REQUEST: /run/predict")
+        logger.info(f"Timestamp: {datetime.now().isoformat()}")
+        logger.info("=" * 60)
+        
         scheduler_module = importlib.import_module('src.07_scheduler')
         initialize_system = scheduler_module.initialize_system
         daily_predict = scheduler_module.daily_predict
+        
+        logger.info("Calling initialize_system()...")
         initialize_system()
-        daily_predict()
-        return jsonify({'status': 'ok', 'job': 'predict',
-                        'timestamp': datetime.now().isoformat()})
+        
+        logger.info("Calling daily_predict()...")
+        result = daily_predict()
+        
+        logger.info(f"daily_predict() returned: {result}")
+        
+        if result.get('status') == 'error':
+            logger.critical(f"PREDICTION JOB FAILED: {result.get('reason')}")
+            return jsonify({
+                'status': 'error', 
+                'job': 'predict',
+                'result': result,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+        
+        logger.info("PREDICTION JOB COMPLETED SUCCESSFULLY")
+        return jsonify({
+            'status': 'ok', 
+            'job': 'predict',
+            'result': result,
+            'timestamp': datetime.now().isoformat()
+        })
     except Exception as e:
-        logging.error(f"Predict job error: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.critical(f"UNHANDLED EXCEPTION in /run/predict: {e}")
+        logger.critical(f"Error type: {type(e).__name__}")
+        import traceback
+        logger.critical(traceback.format_exc())
+        return jsonify({
+            'status': 'error', 
+            'job': 'predict',
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 @app.route('/run/evaluate', methods=['GET', 'POST'])
 @require_cron_token
 def run_evaluate():
     """Trigger daily evaluation job."""
     try:
+        logger.info("=" * 60)
+        logger.info("INCOMING REQUEST: /run/evaluate")
+        logger.info(f"Timestamp: {datetime.now().isoformat()}")
+        logger.info("=" * 60)
+        
         scheduler_module = importlib.import_module('src.07_scheduler')
         initialize_system = scheduler_module.initialize_system
         daily_evaluate = scheduler_module.daily_evaluate
+        
+        logger.info("Calling initialize_system()...")
         initialize_system()
-        daily_evaluate()
-        return jsonify({'status': 'ok', 'job': 'evaluate',
-                        'timestamp': datetime.now().isoformat()})
+        
+        logger.info("Calling daily_evaluate()...")
+        result = daily_evaluate()
+        
+        logger.info(f"daily_evaluate() returned: {result}")
+        
+        if result.get('status') == 'error':
+            logger.critical(f"EVALUATION JOB FAILED: {result.get('reason')}")
+            return jsonify({
+                'status': 'error', 
+                'job': 'evaluate',
+                'result': result,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+        
+        logger.info("EVALUATION JOB COMPLETED SUCCESSFULLY")
+        return jsonify({
+            'status': 'ok', 
+            'job': 'evaluate',
+            'result': result,
+            'timestamp': datetime.now().isoformat()
+        })
     except Exception as e:
-        logging.error(f"Evaluate job error: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.critical(f"UNHANDLED EXCEPTION in /run/evaluate: {e}")
+        logger.critical(f"Error type: {type(e).__name__}")
+        import traceback
+        logger.critical(traceback.format_exc())
+        return jsonify({
+            'status': 'error', 
+            'job': 'evaluate',
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@app.route('/api/diagnostics')
+def api_diagnostics():
+    """Diagnostic endpoint to verify Firestore connectivity and data availability."""
+    logger.info("=" * 60)
+    logger.info("DIAGNOSTICS: Checking Firestore data...")
+    logger.info("=" * 60)
+    
+    diagnostics = {
+        'timestamp': datetime.now().isoformat(),
+        'firebase_configured': bool(API_KEY and PROJECT_ID),
+        'collections': {}
+    }
+    
+    # Check each collection
+    collections = ['predictions', 'evaluations', 'drift_events', 'system/current']
+    
+    for collection in collections:
+        try:
+            if collection == 'system/current':
+                doc = fs_get('system/current')
+                count = 1 if doc else 0
+                sample = parse(doc) if doc else None
+            else:
+                docs = fs_list(collection, page_size=10)
+                count = len(docs)
+                sample = parse(docs[0]) if docs else None
+            
+            diagnostics['collections'][collection] = {
+                'count': count,
+                'sample_keys': list(sample.keys()) if sample else [],
+                'status': '✓' if count > 0 else '⚠️ empty'
+            }
+            logger.info(f"  {collection}: {count} documents")
+        except Exception as e:
+            diagnostics['collections'][collection] = {
+                'error': str(e),
+                'status': '✗ error'
+            }
+            logger.error(f"  {collection}: ERROR - {e}")
+    
+    logger.info("=" * 60)
+    return jsonify(diagnostics)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

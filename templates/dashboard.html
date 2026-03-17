@@ -2,66 +2,182 @@
 
 {% block content %}
 
-<!-- LIVE TAB -->
-<section id="live" class="tab-section active">
-    <div class="section-header">
-        <h2>Live System State</h2>
-        <button id="liveRefreshBtn" class="btn-small">Refresh Now</button>
-        <small id="liveCountdown">Auto-refresh in 60s</small>
-    </div>
-    
-    <!-- Status Cards -->
-    <div class="stat-cards">
-        <div class="stat-card">
-            <div class="stat-label">Today's Prediction</div>
-            <div class="stat-value" id="todayPred">—</div>
-            <div class="stat-meta" id="todayProb">Probability: —</div>
+<!-- LIVE MODE CONTENT -->
+<div id="liveContainer" class="mode-container">
+    <!-- LIVE TAB -->
+    <section id="live" class="tab-section active">
+        <div class="section-header">
+            <h2>🔴 Live System State</h2>
+            <button id="liveRefreshBtn" class="btn-small">Refresh Now</button>
+            <small id="liveCountdown">Auto-refresh in 60s</small>
         </div>
-        <div class="stat-card">
-            <div class="stat-label">Active Features</div>
-            <div class="stat-value" id="activeFeatureCount">—</div>
-            <div class="stat-meta">Features selected</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Total Drift Events</div>
-            <div class="stat-value" id="driftCountLive">—</div>
-            <div class="stat-meta">In current session</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Last Evaluated</div>
-            <div class="stat-value" id="lastEvaluated">—</div>
-            <div class="stat-meta">Prediction resolved</div>
-        </div>
-    </div>
-    
-    <!-- Model State & Recent Predictions -->
-    <div class="two-col">
-        <!-- Model State -->
-        <div class="chart-card">
-            <h3>Model State</h3>
-            
-            <div style="margin-bottom: 20px;">
-                <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px;">Ensemble Weights</h4>
-                <div id="liveWeights"></div>
+        
+        <!-- Status Cards -->
+        <div class="stat-cards">
+            <div class="stat-card">
+                <div class="stat-label">Today's Prediction</div>
+                <div class="stat-value" id="todayPred">—</div>
+                <div class="stat-meta" id="todayProb">Probability: —</div>
             </div>
-            
-            <div style="margin-bottom: 20px;">
-                <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px;">Active Features</h4>
-                <div id="liveFeatures" class="features-list"></div>
+            <div class="stat-card">
+                <div class="stat-label">Active Features</div>
+                <div class="stat-value" id="activeFeatureCount">—</div>
+                <div class="stat-meta">Features selected</div>
             </div>
-            
-            <div>
-                <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px;">Council Weights</h4>
-                <div id="liveCouncil" class="council-weights"></div>
+            <div class="stat-card">
+                <div class="stat-label">Total Drift Events</div>
+                <div class="stat-value" id="driftCountLive">—</div>
+                <div class="stat-meta">In current session</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Last Evaluated</div>
+                <div class="stat-value" id="lastEvaluated">—</div>
+                <div class="stat-meta">Prediction resolved</div>
             </div>
         </div>
         
-        <!-- Recent Predictions -->
-        <div class="chart-card">
-            <h3>Recent Predictions (Last 10)</h3>
-            <table id="liveTable" class="data-table">
+        <!-- Model State & Recent Predictions -->
+        <div class="two-col">
+            <!-- Model State -->
+            <div class="chart-card">
+                <h3>Model State</h3>
+                
+                <div style="margin-bottom: 20px;">
+                    <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px;">Ensemble Weights</h4>
+                    <div id="liveWeights"></div>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px;">Active Features</h4>
+                    <div id="liveFeatures" class="features-list"></div>
+                </div>
+                
+                <div>
+                    <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px;">Council Weights</h4>
+                    <div id="liveCouncil" class="council-weights"></div>
+                </div>
+            </div>
+            
+            <!-- Recent Predictions -->
+            <div class="chart-card">
+                <h3>Recent Predictions (Last 10)</h3>
+                <table id="liveTable" class="data-table">
+                    <thead>
+                        <tr><th>Date</th><th>Pred</th><th>Prob</th><th>Resolved</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-dim);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Live Drift Events -->
+        <div class="chart-card" style="margin-top: 20px;">
+            <h3>Live Drift Events</h3>
+            <table id="liveDriftTable" class="data-table">
                 <thead>
-                    <tr><th>Date</th><th>Pred</th><th>Prob</th><th>Resolved</th></tr>
+                    <tr><th>Date</th><th>Row Index</th><th>Features Before</th><th>Features After</th></tr>
+                </thead>
+                <tbody>
+                <tr><td colspan="4" style="text-align: center; color: var(--text-dim); padding: 40px 0;">No live drift events yet. System monitors daily and adapts automatically.</td></tr>
+            </tbody>
+        </table>
+    </div>
+    </section>
+</div><!-- /liveContainer -->
+
+<!-- OVERVIEW TAB -->
+<section id="overview" class="tab-section">
+    <!-- LIVE OVERVIEW CONTENT -->
+    <div id="liveOverview" style="display: none;">
+        <div class="section-header">
+            <h2>Live System Overview</h2>
+        </div>
+        <div class="stat-cards">
+            <div class="stat-card">
+                <div class="stat-label">Model Accuracy (Rolling)</div>
+                <div class="stat-value" id="liveOverviewAcc">—</div>
+                <div class="stat-meta" id="liveOverviewAccLabel">Rolling 30d</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active Features</div>
+                <div class="stat-value" id="liveOverviewFeatures">—</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Drift Events</div>
+                <div class="stat-value" id="liveOverviewDrift">—</div>
+            </div>
+        </div>
+        <div class="chart-card" style="margin-top: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>Live Prediction Accuracy</h3>
+                <small id="liveOverviewAccLabel" style="color: var(--text-dim);"></small>
+            </div>
+            <div class="chart-container" style="height: 300px;">
+                <canvas id="liveOverviewCanvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- SIMULATION OVERVIEW CONTENT -->
+    <div id="simOverview" style="display: none;">
+        <div class="section-header">
+            <h2>Simulation Performance</h2>
+        </div>
+        
+        <!-- Summary Stats -->
+        <div class="stat-cards">
+            <div class="stat-card">
+                <div class="stat-label">Static Accuracy</div>
+                <div class="stat-value" id="overviewStaticAcc">—</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Adaptive Accuracy</div>
+                <div class="stat-value" id="overviewAdaptiveAcc">—</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Accuracy Delta</div>
+                <div class="stat-value" id="overviewDelta">—</div>
+                <div class="stat-meta">Adaptive − Static</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Drift Events</div>
+                <div class="stat-value" id="overviewDriftCount">—</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Simulation Days</div>
+                <div class="stat-value" id="overviewDays">—</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Predictions</div>
+                <div class="stat-value" id="overviewPreds">—</div>
+            </div>
+        </div>
+        
+        <!-- Mini Charts -->
+        <div class="two-col">
+            <div class="chart-card">
+                <h3 id="overviewAccuracyCanvasLabel">Rolling Accuracy (30D)</h3>
+                <canvas id="overviewAccuracyCanvas" height="200"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Weight Evolution</h3>
+                <canvas id="overviewWeightsCanvas" height="200"></canvas>
+            </div>
+        </div>
+        
+        <!-- Drift Events Table -->
+        <div class="chart-card" style="margin-top: 20px;">
+            <h3>Simulation Drift Events (Preview)</h3>
+            <table id="simDriftTable" class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">Date</th>
+                        <th style="width: 15%;">Row</th>
+                        <th style="width: 40%;">Fitness (PSO/GA/GWO)</th>
+                        <th style="width: 20%;">Weight Change</th>
+                    </tr>
                 </thead>
                 <tbody>
                     <tr><td colspan="4" style="text-align: center; color: var(--text-dim);">Loading...</td></tr>
@@ -69,92 +185,13 @@
             </table>
         </div>
     </div>
-    
-    <!-- Live Drift Events -->
-    <div class="chart-card" style="margin-top: 20px;">
-        <h3>Live Drift Events</h3>
-        <table id="liveDriftTable" class="data-table">
-            <thead>
-                <tr><th>Date</th><th>Row Index</th><th>Features Before</th><th>Features After</th></tr>
-            </thead>
-            <tbody>
-                <tr><td colspan="4" style="text-align: center; color: var(--text-dim); padding: 40px 0;">No live drift events yet. System monitors daily and adapts automatically.</td></tr>
-            </tbody>
-        </table>
-    </div>
-</section>
-
-<!-- OVERVIEW TAB -->
-<section id="overview" class="tab-section">
-    <div class="section-header">
-        <h2>Simulation Overview</h2>
-    </div>
-    
-    <!-- Summary Stats -->
-    <div class="stat-cards">
-        <div class="stat-card">
-            <div class="stat-label">Static Accuracy</div>
-            <div class="stat-value" id="overviewStaticAcc">—</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Adaptive Accuracy</div>
-            <div class="stat-value" id="overviewAdaptiveAcc">—</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Accuracy Delta</div>
-            <div class="stat-value" id="overviewDelta">—</div>
-            <div class="stat-meta">Adaptive − Static</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Drift Events</div>
-            <div class="stat-value" id="overviewDriftCount">—</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Simulation Days</div>
-            <div class="stat-value" id="overviewDays">—</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Predictions</div>
-            <div class="stat-value" id="overviewPreds">—</div>
-        </div>
-    </div>
-    
-    <!-- Mini Charts -->
-    <div class="two-col">
-        <div class="chart-card">
-            <h3>Rolling Accuracy (30D)</h3>
-            <canvas id="overviewAccuracyCanvas" height="200"></canvas>
-        </div>
-        <div class="chart-card">
-            <h3>Weight Evolution</h3>
-            <canvas id="overviewWeightsCanvas" height="200"></canvas>
-        </div>
-    </div>
-    
-    <!-- Drift Events Table -->
-    <div class="chart-card" style="margin-top: 20px;">
-        <h3>Simulation Drift Events (Preview)</h3>
-        <table id="simDriftTable" class="data-table">
-            <thead>
-                <tr>
-                    <th style="width: 25%;">Date</th>
-                    <th style="width: 15%;">Row</th>
-                    <th style="width: 40%;">Fitness (PSO/GA/GWO)</th>
-                    <th style="width: 20%;">Weight Change</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr><td colspan="4" style="text-align: center; color: var(--text-dim);">Loading...</td></tr>
-            </tbody>
-        </table>
-    </div>
 </section>
 
 <!-- ACCURACY TAB -->
 <section id="accuracy" class="tab-section">
     <div class="section-header">
         <h2>Accuracy Comparison</h2>
-        <small>Rolling 30-day average | Vertical lines: drift events</small>
+        <small id="accuracyCanvasLabel">Rolling 30-day average | Vertical lines: drift events</small>
     </div>
     <div class="chart-card">
         <div class="chart-container">
@@ -167,7 +204,7 @@
 <!-- WEIGHTS TAB -->
 <section id="weights" class="tab-section">
     <div class="section-header">
-        <h2>Ensemble Weight Evolution</h2>
+        <h2 id="weightsCanvasLabel">Ensemble Weight Evolution</h2>
     </div>
     <div class="chart-card">
         <div class="chart-container">
@@ -190,20 +227,20 @@
     </div>
 </section>
 
-<!-- PSO SHIFTS TAB -->
-<section id="pso" class="tab-section">
+<!-- MHO COUNCIL TAB -->
+<section id="mho" class="tab-section">
     <div class="section-header">
-        <h2>PSO Council Weight Shifts</h2>
-        <small>First 6 drift events | Before vs After weights</small>
+        <h2>MHO Council Decisions Heatmap</h2>
+        <small>Algorithm weight distribution (PSO, GA, GWO) across drift events. Darker segments indicate higher influence.</small>
     </div>
     
     <div class="chart-card">
-        <div class="chart-container">
-            <canvas id="psoCanvas"></canvas>
+        <div class="chart-container" style="height: 220px;">
+            <canvas id="heatmapCanvas"></canvas>
         </div>
     </div>
     
-    <div id="psoCardsContainer"></div>
+    <div id="mhoCardsContainer"></div>
 </section>
 
 <!-- DRIFT EVENTS TAB -->
@@ -238,79 +275,5 @@
     </div>
 </section>
 
-{% endblock %}
 
-{% block scripts %}
-<script>
-// Wait for live.js to be loaded before initializing
-function initDashboard() {
-    // Check if functions are defined
-    if (typeof loadLiveData !== 'function') {
-        console.warn('⏳ Waiting for live.js to load...');
-        setTimeout(initDashboard, 100);
-        return;
-    }
-
-    console.log('✅ live.js loaded, initializing dashboard...');
-
-    // Tab navigation
-    document.querySelectorAll('.nav-tab').forEach(tab => {
-        tab.addEventListener('click', async (e) => {
-            const tabName = e.target.getAttribute('data-tab');
-            
-            // Hide all sections
-            document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
-            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-            
-            // Show selected section
-            document.getElementById(tabName)?.classList.add('active');
-            e.target.classList.add('active');
-            
-            // Load data for specific tabs
-            try {
-                if (tabName === 'live') {
-                    await loadLiveData();
-                    startLiveRefresh();
-                } else if (tabName === 'overview') {
-                    stopLiveRefresh();
-                    await loadOverviewData();
-                } else if (tabName === 'accuracy') {
-                    stopLiveRefresh();
-                    await loadAccuracyData();
-                } else if (tabName === 'weights') {
-                    stopLiveRefresh();
-                    await loadWeightsData();
-                } else if (tabName === 'nifty50') {
-                    stopLiveRefresh();
-                    await loadNiftyData();
-                } else if (tabName === 'pso') {
-                    stopLiveRefresh();
-                    await loadPSOData();
-                } else if (tabName === 'drift') {
-                    stopLiveRefresh();
-                    await loadDriftData();
-                } else if (tabName === 'models') {
-                    stopLiveRefresh();
-                    await loadModelRegistry();
-                } else {
-                    stopLiveRefresh();
-                }
-            } catch (error) {
-                console.error('❌ Tab loading error:', error);
-            }
-        });
-    });
-
-    // Load live data on startup
-    try {
-        loadLiveData();
-        startLiveRefresh();
-    } catch (error) {
-        console.error('❌ Failed to initialize live data:', error);
-    }
-}
-
-// Initialize after DOM is ready
-document.addEventListener('DOMContentLoaded', initDashboard);
-</script>
 {% endblock %}

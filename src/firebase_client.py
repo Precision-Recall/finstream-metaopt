@@ -193,32 +193,46 @@ class FirebaseClient:
                 logger.error("Prediction dict missing 'date' field")
                 return False
             
+            logger.info(f"Saving prediction for {date}...")
+            
             # Convert to Firestore format
             fields = {
                 key: _to_firestore_value(value)
                 for key, value in prediction_dict.items()
             }
             
+            logger.debug(f"Fields to save: {list(fields.keys())}")
+            
             # Prepare request body
             body = {"fields": fields}
             
             # POST to Firestore (document ID is the date)
             url = self._build_url("predictions", date)
+            logger.info(f"Making PATCH request to: {url}")
+            
             response = self.session.patch(
                 url,
                 json=body,
-                params=self._get_params()
+                params=self._get_params(),
+                timeout=10
             )
             
+            logger.info(f"Firestore response status: {response.status_code}")
+            
             if response.status_code in [200, 201]:
-                logger.info(f"Saved prediction for {date}")
+                logger.info(f"✓ Saved prediction for {date}")
                 return True
             else:
-                logger.error(f"Failed to save prediction: {response.status_code} {response.text}")
+                logger.error(f"✗ Failed to save prediction: HTTP {response.status_code}")
+                logger.error(f"  Response body: {response.text}")
+                logger.error(f"  URL: {url}")
+                logger.error(f"  Request body: {body}")
                 return False
         
         except Exception as e:
-            logger.error(f"Error saving prediction: {e}")
+            logger.error(f"✗ Exception saving prediction: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"  Traceback: {traceback.format_exc()}")
             return False
 
     def save_evaluation(self, evaluation_dict: Dict[str, Any]) -> bool:
@@ -340,6 +354,8 @@ class FirebaseClient:
             True if successful, False otherwise.
         """
         try:
+            logger.info("Updating model state...")
+            
             fields = {
                 key: _to_firestore_value(value)
                 for key, value in state_dict.items()
@@ -347,21 +363,28 @@ class FirebaseClient:
             
             body = {"fields": fields}
             url = self._build_url("system", "current")
+            
+            logger.info(f"Making PATCH request to: {url}")
+            
             response = self.session.patch(
                 url,
                 json=body,
-                params=self._get_params()
+                params=self._get_params(),
+                timeout=10
             )
             
+            logger.info(f"Firestore response status: {response.status_code}")
+            
             if response.status_code in [200, 201]:
-                logger.info("Updated model state")
+                logger.info("✓ Updated model state")
                 return True
             else:
-                logger.error(f"Failed to update model state: {response.status_code} {response.text}")
+                logger.error(f"✗ Failed to update model state: HTTP {response.status_code}")
+                logger.error(f"  Response body: {response.text}")
                 return False
         
         except Exception as e:
-            logger.error(f"Error updating model state: {e}")
+            logger.error(f"✗ Exception updating model state: {type(e).__name__}: {e}")
             return False
 
     def get_model_state(self) -> Optional[Dict[str, Any]]:
@@ -373,7 +396,15 @@ class FirebaseClient:
         """
         try:
             url = self._build_url("system", "current")
-            response = self.session.get(url, params=self._get_params())
+            logger.info(f"Getting model state from: {url}")
+            
+            response = self.session.get(
+                url, 
+                params=self._get_params(),
+                timeout=10
+            )
+            
+            logger.info(f"Firestore response status: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
@@ -382,7 +413,7 @@ class FirebaseClient:
                         key: _from_firestore_value(value)
                         for key, value in data["fields"].items()
                     }
-                    logger.info("Retrieved model state from Firestore")
+                    logger.info("✓ Retrieved model state from Firestore")
                     return state
                 else:
                     logger.warning("Model state document exists but has no fields")
@@ -391,10 +422,13 @@ class FirebaseClient:
                 logger.info("Model state not found (first run)")
                 return None
             else:
-                logger.error(f"Failed to get model state: {response.status_code}")
+                logger.error(f"✗ Failed to get model state: HTTP {response.status_code}")
+                logger.error(f"  Response body: {response.text}")
                 return None
         
         except Exception as e:
+            logger.error(f"✗ Exception retrieving model state: {type(e).__name__}: {e}")
+            return None
             logger.error(f"Error retrieving model state: {e}")
             return None
 
@@ -448,7 +482,15 @@ class FirebaseClient:
         """
         try:
             url = self._build_url("predictions", date)
-            response = self.session.get(url, params=self._get_params())
+            logger.info(f"Retrieving prediction from: {url}")
+            
+            response = self.session.get(
+                url, 
+                params=self._get_params(),
+                timeout=10
+            )
+            
+            logger.info(f"Firestore response status: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
@@ -457,17 +499,18 @@ class FirebaseClient:
                         key: _from_firestore_value(value)
                         for key, value in data["fields"].items()
                     }
-                    logger.info(f"Retrieved prediction for {date}")
+                    logger.info(f"✓ Retrieved prediction for {date}")
                     return prediction
             elif response.status_code == 404:
-                logger.warning(f"Prediction not found for {date}")
+                logger.info(f"Prediction not found for {date}")
                 return None
             else:
-                logger.error(f"Failed to get prediction: {response.status_code}")
+                logger.error(f"✗ Failed to get prediction: HTTP {response.status_code}")
+                logger.error(f"  Response body: {response.text}")
                 return None
         
         except Exception as e:
-            logger.error(f"Error retrieving prediction: {e}")
+            logger.error(f"✗ Exception retrieving prediction: {type(e).__name__}: {e}")
             return None
 
 

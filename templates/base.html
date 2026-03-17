@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Adaptive ML Dashboard — NIFTY50</title>
+    <title>Concept Drift Monitor — NIFTY50</title>
     
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -20,7 +20,7 @@
     <!-- Header -->
     <header class="app-header">
         <div class="header-content">
-            <h1 class="app-title">Adaptive ML Dashboard</h1>
+            <h1 class="app-title">Concept Drift Monitor</h1>
             <div class="header-status">
                 <span class="live-dot"></span>
                 <small id="firebaseStatus">Connecting...</small>
@@ -29,16 +29,28 @@
         </div>
     </header>
 
+    <!-- Data Source Selector -->
+    <div class="mode-selector">
+        <div class="mode-buttons">
+            <button id="modeToggleLive" class="mode-btn active" data-mode="live">
+                <span class="mode-icon">🔴</span> LIVE
+            </button>
+            <button id="modeToggleSimulation" class="mode-btn" data-mode="simulation">
+                <span class="mode-icon"></span> SIMULATION
+            </button>
+        </div>
+    </div>
+
     <!-- Navigation Tabs -->
     <nav class="nav-tabs">
-        <button class="nav-tab active" data-tab="live">Live</button>
-        <button class="nav-tab" data-tab="overview">Overview</button>
-        <button class="nav-tab" data-tab="accuracy">Accuracy</button>
-        <button class="nav-tab" data-tab="weights">Weights</button>
-        <button class="nav-tab" data-tab="nifty50">NIFTY50</button>
-        <button class="nav-tab" data-tab="pso">PSO Shifts</button>
-        <button class="nav-tab" data-tab="drift">Drift Events</button>
-        <button class="nav-tab" data-tab="models">Model Registry</button>
+        <button class="nav-tab active" data-tab="live" data-modes="live">Live</button>
+        <button class="nav-tab" data-tab="overview" data-modes="live,simulation">Overview</button>
+        <button class="nav-tab" data-tab="accuracy" data-modes="live,simulation">Accuracy</button>
+        <button class="nav-tab" data-tab="weights" data-modes="live,simulation">Weights</button>
+        <button class="nav-tab" data-tab="nifty50" data-modes="simulation">NIFTY50</button>
+        <button class="nav-tab" data-tab="mho" data-modes="simulation">MHO Council</button>
+        <button class="nav-tab" data-tab="drift" data-modes="live,simulation">Drift Events</button>
+        <button class="nav-tab" data-tab="models" data-modes="live,simulation">Model Registry</button>
     </nav>
 
     <!-- Tab Content -->
@@ -46,9 +58,17 @@
         {% block content %}{% endblock %}
     </main>
 
-    <!-- Scripts -->
-    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/live.js') }}"></script>
+    <!-- Scripts - Modular Architecture -->
+    <!-- Load in dependency order: no dependencies → high dependencies -->
+    <script src="{{ url_for('static', filename='js/store.js') }}"></script>      <!-- Redux core: dispatch, subscribe, getState -->
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>        <!-- REST API calls -->
+    <script src="{{ url_for('static', filename='js/firebase.js') }}"></script>    <!-- Real-time listeners (Firebase/REST) -->
+    <script src="{{ url_for('static', filename='js/utils.js') }}"></script>      <!-- Utility functions -->
+    <script src="{{ url_for('static', filename='js/loaders.js') }}"></script>    <!-- Data orchestration (depends on API, Firebase, store) -->
+    <script src="{{ url_for('static', filename='js/renderers.js') }}"></script>  <!-- UI rendering (depends on store, utils) -->
+    <script src="{{ url_for('static', filename='js/handlers.js') }}"></script>   <!-- Event handlers (depends on loaders) -->
+    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>     <!-- Chart helper functions -->
+    <script src="{{ url_for('static', filename='js/live.js') }}"></script>       <!-- Entry point: orchestrates everything -->
     {% block scripts %}{% endblock %}
 </body>
 </html>
