@@ -90,6 +90,7 @@ def initialize_system():
         return  # Already initialized, skip
     
     logger.info("Initializing adaptive ML system...")
+    logger.info(f"Environment: PROJECT_ID={os.getenv('FIREBASE_PROJECT_ID', 'NOT SET')}, API_KEY={'SET' if os.getenv('FIREBASE_API_KEY') else 'NOT SET'}")
     
     # Load models
     try:
@@ -102,10 +103,17 @@ def initialize_system():
     # Initialize Firebase client
     try:
         firebase_client = FirebaseClient()
-        logger.info("✓ Firebase client initialized")
+        logger.info("✓ Firebase client initialized successfully")
+    except ValueError as e:
+        logger.critical(f"FIREBASE INITIALIZATION FAILED - Missing credentials: {e}")
+        logger.critical(f"  FIREBASE_PROJECT_ID: {os.getenv('FIREBASE_PROJECT_ID', 'NOT SET')}")
+        logger.critical(f"  FIREBASE_API_KEY: {'SET' if os.getenv('FIREBASE_API_KEY') else 'NOT SET'}")
+        logger.critical("Aborting - cannot proceed without Firebase credentials")
+        firebase_client = None
     except Exception as e:
-        logger.error(f"Firebase initialization failed: {e}")
-        logger.warning("Continuing without Firebase (predictions won't be saved)")
+        logger.critical(f"FIREBASE INITIALIZATION FAILED - Unexpected error: {e}")
+        logger.critical(f"Error type: {type(e).__name__}")
+        logger.critical("Will attempt to continue, but data will NOT be saved")
         firebase_client = None
     
     # Initialize council and ADWIN
@@ -237,6 +245,9 @@ def daily_predict():
       2. Make ensemble prediction
       3. Save to Firebase
       4. Update model state (last_prediction_date)
+    
+    Returns:
+      dict with status: 'success', 'warning', or 'error'
     """
     global active_features, ensemble_weights
     
@@ -246,14 +257,20 @@ def daily_predict():
     
     if datetime.now(IST).weekday() >= 5 and not TEST_MODE:
         logger.info("Market holiday — skipping")
-        return
+        return {'status': 'skipped', 'reason': 'weekend'}
     
     try:
+        # Check Firebase availability
+        if not firebase_client:
+            logger.critical("FIREBASE CLIENT NOT AVAILABLE - CANNOT SAVE PREDICTIONS")
+            logger.critical("Check environment variables: FIREBASE_PROJECT_ID, FIREBASE_API_KEY")
+            return {'status': 'error', 'reason': 'firebase_unavailable'}
+        
         # Engineer features
         features_today = engineer_today_features()
         if features_today is None:
-            logger.warning("Failed to engineer features")
-            return
+            logger.error("Failed to engineer features")
+            return {'status': 'error', 'reason': 'feature_engineering_failed'}
         
         # Make prediction
         today_str = datetime.now(IST).strftime('%Y-%m-%d')
@@ -268,39 +285,49 @@ def daily_predict():
         logger.info(f"Prediction: {pred_label} (prob={prob:.4f})")
         
         # Save to Firebase
-        if firebase_client:
-            prediction_dict = {
-                'date': today_str,
-                'prediction': int(pred),
-                'prediction_label': pred_label,
-                'ensemble_probability': round(float(prob), 6),
-                'w_old': round(float(ensemble_weights[0]), 4),
-                'w_medium': round(float(ensemble_weights[1]), 4),
-                'w_recent': round(float(ensemble_weights[2]), 4),
-                'active_features': active_features,
-                'active_feature_count': len(active_features),
-                'resolved': False,
-                'truth': None,
-                'error': None,
-                'created_at': datetime.now(IST).isoformat()
-            }
-            
-            if firebase_client.save_prediction(prediction_dict):
-                logger.info("✓ Prediction saved to Firebase")
-            else:
-                logger.warning("Failed to save prediction to Firebase")
-            
-            # Update model state
-            state_update = {
-                'last_prediction_date': today_str,
-                'updated_at': datetime.now(IST).isoformat()
-            }
-            firebase_client.update_model_state(state_update)
+        prediction_dict = {
+            'date': today_str,
+            'prediction': int(pred),
+            'prediction_label': pred_label,
+            'ensemble_probability': round(float(prob), 6),
+            'w_old': round(float(ensemble_weights[0]), 4),
+            'w_medium': round(float(ensemble_weights[1]), 4),
+            'w_recent': round(float(ensemble_weights[2]), 4),
+            'active_features': active_features,
+            'active_feature_count': len(active_features),
+            'resolved': False,
+            'truth': None,
+            'error': None,
+            'created_at': datetime.now(IST).isoformat()
+        }
+        
+        save_success = firebase_client.save_prediction(prediction_dict)
+        if not save_success:
+            logger.critical(f"FAILED TO SAVE PREDICTION TO FIREBASE")
+            logger.critical(f"Prediction data: {prediction_dict}")
+            return {'status': 'error', 'reason': 'save_prediction_failed'}
+        
+        logger.info("✓ Prediction saved to Firebase")
+        
+        # Update model state
+        state_update = {
+            'last_prediction_date': today_str,
+            'updated_at': datetime.now(IST).isoformat()
+        }
+        state_save_success = firebase_client.update_model_state(state_update)
+        if not state_save_success:
+            logger.warning(f"Failed to update model state")
+            # Don't fail the whole job for this
         
         logger.info("daily_predict completed successfully")
+        return {'status': 'success'}
     
     except Exception as e:
-        logger.error(f"Error in daily_predict: {e}")
+        logger.critical(f"CRITICAL ERROR in daily_predict: {e}")
+        logger.critical(f"Error type: {type(e).__name__}")
+        import traceback
+        logger.critical(f"Traceback: {traceback.format_exc()}")
+        return {'status': 'error', 'reason': 'exception', 'error_message': str(e)}
 
 
 def daily_evaluate():
@@ -315,6 +342,9 @@ def daily_evaluate():
       5. Update ADWIN
       6. If drift detected: run council optimization
       7. Save evaluation and drift event to Firebase
+    
+    Returns:
+      dict with status: 'success', 'skipped', or 'error'
     """
     global active_features, ensemble_weights, adwin
     
@@ -324,9 +354,14 @@ def daily_evaluate():
     
     if datetime.now(IST).weekday() >= 5 and not TEST_MODE:
         logger.info("Market holiday — skipping")
-        return
+        return {'status': 'skipped', 'reason': 'weekend'}
     
     try:
+        # Check Firebase availability
+        if not firebase_client:
+            logger.critical("FIREBASE CLIENT NOT AVAILABLE - CANNOT EVALUATE")
+            return {'status': 'error', 'reason': 'firebase_unavailable'}
+        
         # Calculate target date (5 business days ago)
         today = datetime.now(IST).date()
         dates = pd.bdate_range(end=today, periods=6)
@@ -336,17 +371,13 @@ def daily_evaluate():
         logger.info(f"Evaluating prediction from {target_date_str}")
         
         # Get prediction from Firebase
-        if not firebase_client:
-            logger.warning("Firebase client unavailable — skipping evaluation")
-            return
-        
         prediction = firebase_client.get_prediction_by_date(target_date_str)
         if not prediction:
             logger.warning(f"Prediction not found for {target_date_str}")
             if TEST_MODE:
                 logger.info("TEST MODE: No prediction to evaluate — this is expected on first run")
                 logger.info("In production, predictions from 5 days ago will be evaluated here")
-            return
+            return {'status': 'skipped', 'reason': 'no_prediction_found'}
         
         # Fetch actual price data
         try:
@@ -359,7 +390,7 @@ def daily_evaluate():
             
             if len(hist) < 2:
                 logger.warning(f"Insufficient price data for {target_date_str}")
-                return
+                return {'status': 'error', 'reason': 'insufficient_price_data'}
             
             close_at_prediction = hist['Close'].iloc[0]
             close_5_days_later = hist['Close'].iloc[-1]
@@ -397,8 +428,11 @@ def daily_evaluate():
                 'evaluated_at': datetime.now(IST).isoformat()
             }
             
-            if firebase_client.save_evaluation(evaluation_dict):
-                logger.info("✓ Evaluation saved to Firebase")
+            if not firebase_client.save_evaluation(evaluation_dict):
+                logger.error("Failed to save evaluation to Firebase")
+                return {'status': 'error', 'reason': 'save_evaluation_failed'}
+            
+            logger.info("✓ Evaluation saved to Firebase")
             
             # If drift detected, run council optimization
             if drift_flag:
@@ -462,7 +496,9 @@ def daily_evaluate():
                     'detected_at': datetime.now(IST).isoformat()
                 }
                 
-                if firebase_client.save_drift_event(drift_dict):
+                if not firebase_client.save_drift_event(drift_dict):
+                    logger.error("Failed to save drift event to Firebase")
+                else:
                     logger.info("✓ Drift event saved to Firebase")
                 
                 # Update model state
@@ -478,19 +514,27 @@ def daily_evaluate():
                     'last_drift_date': target_date_str,
                     'updated_at': datetime.now(IST).isoformat()
                 }
-                firebase_client.update_model_state(state_update)
+                if not firebase_client.update_model_state(state_update):
+                    logger.error("Failed to update model state after drift")
                 
                 # Reset ADWIN
                 adwin = ADWIN(delta=ADWIN_DELTA)
                 logger.info("✓ ADWIN reset")
             
             logger.info("daily_evaluate completed successfully")
+            return {'status': 'success', 'drift_detected': drift_flag}
         
         except Exception as e:
-            logger.error(f"Error fetching price data: {e}")
+            logger.critical(f"CRITICAL ERROR in price data processing: {type(e).__name__}: {e}")
+            import traceback
+            logger.critical(f"Traceback: {traceback.format_exc()}")
+            return {'status': 'error', 'reason': 'price_data_error', 'error_message': str(e)}
     
     except Exception as e:
-        logger.error(f"Error in daily_evaluate: {e}")
+        logger.critical(f"CRITICAL ERROR in daily_evaluate: {type(e).__name__}: {e}")
+        import traceback
+        logger.critical(f"Traceback: {traceback.format_exc()}")
+        return {'status': 'error', 'reason': 'exception', 'error_message': str(e)}
 
 
 def start_scheduler():
