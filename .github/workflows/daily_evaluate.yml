@@ -8,9 +8,34 @@ on:
 jobs:
   evaluate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-
+    timeout-minutes: 10
     steps:
+      - name: Check and wake Render if needed
+        run: |
+          echo "Checking if Render is up..."
+          MAX_RETRIES=8
+          WAIT_SECONDS=15
+          count=0
+
+          until [ $count -ge $MAX_RETRIES ]; do
+            status=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              "${{ secrets.RENDER_URL }}/health")
+
+            echo "Attempt $((count+1)): HTTP $status"
+
+            if [ "$status" = "200" ]; then
+              echo "Render is up!"
+              exit 0
+            fi
+
+            echo "Not ready yet. Waiting ${WAIT_SECONDS}s..."
+            sleep $WAIT_SECONDS
+            count=$((count+1))
+          done
+
+          echo "Render did not wake up after $MAX_RETRIES attempts"
+          exit 1
       - name: Trigger daily evaluation
         run: |
           response=$(curl -s -o /dev/null -w "%{http_code}" \
