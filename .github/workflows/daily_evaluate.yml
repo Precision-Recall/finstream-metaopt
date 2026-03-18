@@ -36,7 +36,6 @@ jobs:
 
           echo "Render did not wake up after $MAX_RETRIES attempts"
           exit 1
-    steps:
       - name: Trigger daily evaluation
         run: |
           response=$(curl -s -o /dev/null -w "%{http_code}" \
