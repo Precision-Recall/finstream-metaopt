@@ -13,11 +13,11 @@ jobs:
       - name: Check and wake Render if needed
         run: |
           echo "Checking if Render is up..."
-          MAX_RETRIES=60
+          MAX_RETRIES=30
           WAIT_SECONDS=15
           count=0
 
-          until [ $count -ge $MAX_RETRIES ]; do
+          while [ $count -lt $MAX_RETRIES ]; do
             status=$(curl -s -o /dev/null -w "%{http_code}" \
               --max-time 10 \
               "${{ secrets.RENDER_URL }}/health")
@@ -29,22 +29,27 @@ jobs:
               exit 0
             fi
 
-            echo "Not ready yet. Waiting ${WAIT_SECONDS}s..."
-            sleep $WAIT_SECONDS
             count=$((count+1))
+            if [ $count -lt $MAX_RETRIES ]; then
+              echo "Not ready yet. Waiting ${WAIT_SECONDS}s..."
+              sleep $WAIT_SECONDS
+            fi
           done
 
           echo "Render did not wake up after $MAX_RETRIES attempts"
           exit 1
       - name: Trigger daily evaluation
         run: |
-          response=$(curl -s -o /dev/null -w "%{http_code}" \
+          HTTP_STATUS=$(curl -s -w "%{http_code}" -o response.txt \
             -X POST \
             -H "X-Cron-Token: ${{ secrets.CRON_SECRET }}" \
             "${{ secrets.RENDER_URL }}/run/evaluate")
-          echo "HTTP Status: $response"
-          if [ "$response" != "200" ]; then
-            echo "Evaluate job failed with status $response"
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Response Body:"
+          cat response.txt
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Evaluate job failed with status $HTTP_STATUS"
             exit 1
           fi
           echo "Evaluation job completed successfully"
