@@ -13,7 +13,7 @@ jobs:
       - name: Check and wake Render if needed
         run: |
           echo "Checking if Render is up..."
-          MAX_RETRIES=8
+          MAX_RETRIES=60
           WAIT_SECONDS=15
           count=0
 
