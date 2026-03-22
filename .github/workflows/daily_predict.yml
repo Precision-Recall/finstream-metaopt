@@ -38,13 +38,16 @@ jobs:
           exit 1
       - name: Trigger daily prediction
         run: |
-          response=$(curl -s -o /dev/null -w "%{http_code}" \
+          HTTP_STATUS=$(curl -s -w "%{http_code}" -o response.txt \
             -X POST \
             -H "X-Cron-Token: ${{ secrets.CRON_SECRET }}" \
             "${{ secrets.RENDER_URL }}/run/predict")
-          echo "HTTP Status: $response"
-          if [ "$response" != "200" ]; then
-            echo "Prediction job failed with status $response"
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Response Body:"
+          cat response.txt
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Prediction job failed with status $HTTP_STATUS"
             exit 1
           fi
           echo "Prediction job completed successfully"
