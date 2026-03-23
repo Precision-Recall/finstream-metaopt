@@ -19,8 +19,9 @@ jobs:
 
           while [ $count -lt $MAX_RETRIES ]; do
             status=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 10 \
-              "${{ secrets.RENDER_URL }}/health")
+              --max-time 60 \
+              --connect-timeout 10 \
+              "${{ secrets.RENDER_URL }}/health" || true)
 
             echo "Attempt $((count+1)): HTTP $status"
 
