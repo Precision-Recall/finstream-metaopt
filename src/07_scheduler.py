@@ -403,7 +403,8 @@ def daily_evaluate():
             predicted_value = prediction.get('prediction', 0)
             predicted_prob = prediction.get('ensemble_probability', 0.5)
             error = 1 if predicted_value != truth else 0
-            continuous_error = abs(predicted_prob - truth)
+            # Brier Score based continuous error: (prob - truth)^2
+            continuous_error = (predicted_prob - truth)**2
             
             logger.info(f"  Predicted: {'UP' if predicted_value == 1 else 'DOWN'} "
                        f"(prob={predicted_prob:.4f})")
@@ -610,7 +611,8 @@ def evaluate_pending_predictions(n: int = 10):
                 predicted_value = pred.get('prediction', 0)
                 predicted_prob = pred.get('ensemble_probability', 0.5)
                 error = 1 if predicted_value != truth else 0
-                continuous_error = abs(predicted_prob - truth)
+                # Brier Score based continuous error: (prob - truth)^2
+                continuous_error = (predicted_prob - truth)**2
                 
                 # Update ADWIN
                 adwin.update(continuous_error)

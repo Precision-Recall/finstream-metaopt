@@ -43,8 +43,11 @@ const Utils = {
                 };
             }
 
-            // Accuracy: 1 if correct (error == 0), else 0
-            grouped[key].accuracies.push(item.error === 0 ? 1 : 0);
+            // Brier-based Score (1 - (prob - item.truth)^2)
+            const prob = item.ensemble_probability !== undefined ? item.ensemble_probability : (item.probability !== undefined ? item.probability : null);
+            if (prob !== null && item.truth !== undefined) {
+                grouped[key].accuracies.push(1 - Math.pow(prob - item.truth, 2));
+            }
             if (item.w_old !== undefined) grouped[key].w_old.push(item.w_old);
             if (item.w_medium !== undefined) grouped[key].w_medium.push(item.w_medium);
             if (item.w_recent !== undefined) grouped[key].w_recent.push(item.w_recent);
@@ -56,7 +59,7 @@ const Utils = {
             
             return {
                 label: g.label,
-                avgAccuracy: avg(g.accuracies) * 100,
+                avgBrierScore: avg(g.accuracies) * 100,
                 avgWeightOld: avg(g.w_old),
                 avgWeightMedium: avg(g.w_medium),
                 avgWeightRecent: avg(g.w_recent)

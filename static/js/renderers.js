@@ -64,20 +64,30 @@ const Renderers = {
             this._updateElement('driftCountLive', live.drift?.length || 0);
             
             // Overview Cards (Live)
-            let avgAcc = 0;
+            let avgBrierScore = 0;
             const resolvedPredictions = live.predictions.filter(p => p.resolved);
             
             if (resolvedPredictions.length > 0) {
-                if (resolvedPredictions.length < 30) {
-                    const totalCorrect = resolvedPredictions.filter(p => p.error === 0).length;
-                    avgAcc = (totalCorrect / resolvedPredictions.length) * 100;
-                } else {
-                    const grouped = Utils.groupDataByMonthYear(resolvedPredictions);
-                    avgAcc = grouped.length > 0 ? grouped[grouped.length - 1].avgAccuracy : 0;
-                }
-                this._updateElement('liveOverviewAcc', `${avgAcc.toFixed(1)}%`);
+                // Consistent Brier-based Score Calculation (skip if missing)
+                const totalScore = resolvedPredictions.reduce((sum, p) => {
+                    const prob = p.ensemble_probability !== undefined ? p.ensemble_probability : (p.probability !== undefined ? p.probability : null);
+                    if (prob !== null && p.truth !== undefined) {
+                        return sum + (1 - Math.pow(prob - p.truth, 2));
+                    }
+                    return sum;
+                }, 0);
+                
+                // Only count those that were actually scored
+                const scoredCount = resolvedPredictions.filter(p => {
+                    const prob = p.ensemble_probability !== undefined ? p.ensemble_probability : (p.probability !== undefined ? p.probability : null);
+                    return prob !== null && p.truth !== undefined;
+                }).length;
+
+                avgBrierScore = scoredCount > 0 ? (totalScore / scoredCount) * 100 : 0;
+                
+                this._updateElement('liveOverviewBrier', `${avgBrierScore.toFixed(1)}%`);
             } else {
-                this._updateElement('liveOverviewAcc', 'Pending');
+                this._updateElement('liveOverviewBrier', 'Pending');
             }
             
             this._updateElement('liveOverviewFeatures', latest.active_feature_count || '—');
@@ -104,8 +114,8 @@ const Renderers = {
         this._populateDriftEventsTab(live.drift || []);
 
         // Create charts
-        this.createAccuracyChart('accuracyCanvas', live.predictions);
-        this.createAccuracyChart('liveOverviewCanvas', live.predictions);
+        this.createBrierScoreChart('brierCanvas', live.predictions);
+        this.createBrierScoreChart('liveOverviewBrierCanvas', live.predictions);
         this.createWeightsChart('weightsCanvas', live.predictions);
 
         // Model Registry (should show in both modes if data exists)
@@ -137,9 +147,9 @@ const Renderers = {
         // Update summary stats
         const s = sim.summary;
         const metrics = {
-            'overviewStaticAcc': `${(s.static_accuracy * 100).toFixed(2)}%`,
-            'overviewAdaptiveAcc': `${(s.adaptive_accuracy * 100).toFixed(2)}%`,
-            'overviewDelta': `${(s.delta > 0 ? '+' : '')}${(s.delta * 100).toFixed(2)}%`,
+            'overviewStaticBrier': `${(s.static_brier_score * 100).toFixed(2)}%`,
+            'overviewAdaptiveBrier': `${(s.adaptive_brier_score * 100).toFixed(2)}%`,
+            'overviewBrierDelta': `${(s.delta > 0 ? '+' : '')}${(s.delta * 100).toFixed(2)}%`,
             'overviewDriftCount': s.drift_count || 0,
             'overviewDays': s.total_days || 0,
             'overviewPreds': s.resolved_predictions || 0
@@ -148,8 +158,8 @@ const Renderers = {
         Object.entries(metrics).forEach(([id, val]) => this._updateElement(id, val));
 
         // Create charts
-        this.createAccuracyChart('overviewAccuracyCanvas', sim.predictions);
-        this.createAccuracyChart('accuracyCanvas', sim.predictions); // Main Accuracy Tab
+        this.createBrierScoreChart('overviewBrierCanvas', sim.predictions);
+        this.createBrierScoreChart('brierCanvas', sim.predictions); // Main Brier Tab
         
         this.createWeightsChart('overviewWeightsCanvas', sim.predictions);
         this.createWeightsChart('weightsCanvas', sim.predictions); // Main Weights Tab
@@ -175,9 +185,9 @@ const Renderers = {
     },
 
     /**
-     * Create accuracy chart
+     * Create Brier Score chart
      */
-    createAccuracyChart(canvasId, predictions = []) {
+    createBrierScoreChart(canvasId, predictions = []) {
         const ctx = document.getElementById(canvasId)?.getContext('2d');
         if (!ctx || !predictions || predictions.length === 0) return;
 
@@ -189,29 +199,44 @@ const Renderers = {
         const isSimulation = getState().mode === 'simulation';
         const resolved = isSimulation ? predictions : predictions.filter(p => p.resolved);
         
-        let labels, accuracyData, label;
-        let rollingLabelText = 'Rolling Accuracy (30d)';
+        let labels, scoreData, label;
+        let rollingLabelText = 'Rolling Brier Score (30d)';
         
         if (resolved.length === 0) {
             // If no resolved data, but we have predictions, show placeholders
             labels = predictions.map(p => Utils.formatDate(p.date, 'short'));
-            accuracyData = predictions.map(p => null); // Don't plot anything
+            scoreData = predictions.map(p => null); // Don't plot anything
             label = 'Waiting for Resolution';
-            rollingLabelText = 'Accuracy (Pending)';
+            rollingLabelText = 'Brier Score (Pending)';
         } else if (resolved.length < 30) {
             labels = resolved.map(p => Utils.formatDate(p.date, 'short'));
-            accuracyData = resolved.map(p => p.error === 0 ? 100 : 0);
-            label = 'Daily Accuracy (%)';
-            rollingLabelText = 'Rolling Accuracy (1d)';
+            scoreData = [];
+            resolved.forEach(p => {
+                const prob = p.ensemble_probability !== undefined ? p.ensemble_probability : (p.probability !== undefined ? p.probability : null);
+                if (prob !== null && p.truth !== undefined) {
+                    scoreData.push((1 - Math.pow(prob - p.truth, 2)) * 100);
+                }
+            });
+            // Match labels to scoreData if some were skipped
+            if (scoreData.length < labels.length) {
+                const validPoints = resolved.filter(p => {
+                    const prob = p.ensemble_probability !== undefined ? p.ensemble_probability : (p.probability !== undefined ? p.probability : null);
+                    return prob !== null && p.truth !== undefined;
+                });
+                labels = validPoints.map(p => Utils.formatDate(p.date, 'short'));
+            }
+
+            label = 'Daily Brier Score (%)';
+            rollingLabelText = 'Rolling Brier Score (1d)';
         } else {
             const grouped = Utils.groupDataByMonthYear(resolved);
             labels = grouped.map(g => g.label);
-            accuracyData = grouped.map(g => g.avgAccuracy);
-            label = 'Monthly Avg Accuracy (%)';
+            scoreData = grouped.map(g => g.avgBrierScore);
+            label = 'Monthly Avg Brier Score (%)';
         }
 
         // Update label element if it exists
-        const labelId = canvasId === 'liveOverviewCanvas' ? 'liveOverviewAccLabel' : canvasId + 'Label';
+        const labelId = canvasId === 'liveOverviewBrierCanvas' ? 'liveOverviewAccLabel' : canvasId + 'Label';
         this._updateElement(labelId, rollingLabelText);
 
         this.chartInstances[canvasId] = new Chart(ctx, {
@@ -220,7 +245,7 @@ const Renderers = {
                 labels: labels,
                 datasets: [{
                     label: label,
-                    data: accuracyData,
+                    data: scoreData,
                     borderColor: '#10b981',
                     backgroundColor: 'rgba(16, 185, 129, 0.1)',
                     borderWidth: 2,
@@ -643,7 +668,7 @@ const Renderers = {
         container.innerHTML = models.map(m => {
             const name = m.model_name || m.id || 'Unknown Model';
             const status = m.status || 'active';
-            const acc = m.val_accuracy || m.accuracy || 0;
+            const acc = m.val_brier_score || m.val_accuracy || m.brier_score || m.accuracy || 0;
             const period = m.train_period || 'Unknown period';
             const trainedAt = m.trained_at ? Utils.formatDate(m.trained_at) : 'Date Unknown';
 
@@ -654,7 +679,7 @@ const Renderers = {
                         <span class="badge ${status === 'active' ? 'badge-green' : ''}">${status}</span>
                     </div>
                     <div style="margin-top: 10px; font-size: 0.85rem;">
-                        <div>Validation Acc: <strong>${(acc * 100).toFixed(1)}%</strong></div>
+                        <div>Validation Brier: <strong>${(acc * 100).toFixed(1)}%</strong></div>
                         <div style="color: var(--text-dim); margin-top: 4px;">Train Period: ${period}</div>
                         <div style="color: var(--text-dim);">Trained on: ${trainedAt}</div>
                     </div>
@@ -663,7 +688,7 @@ const Renderers = {
         }).join('');
 
         // Render comparison chart
-        this._renderModelAccuracyChart(models);
+        this._renderModelBrierChart(models);
     },
 
     _populateDriftEventsTab(driftData) {
@@ -705,8 +730,8 @@ const Renderers = {
         `).join('');
     },
 
-    _renderModelAccuracyChart(models) {
-        const canvasId = 'modelAccuracyCanvas';
+    _renderModelBrierChart(models) {
+        const canvasId = 'modelBrierCanvas';
         const ctx = document.getElementById(canvasId)?.getContext('2d');
         if (!ctx || !models || models.length === 0) return;
 
@@ -715,14 +740,14 @@ const Renderers = {
         }
 
         const labels = models.map(m => m.model_name || m.id || 'Unknown');
-        const data = models.map(m => (m.val_accuracy || m.accuracy || 0) * 100);
+        const data = models.map(m => (m.val_brier_score || m.val_accuracy || m.brier_score || m.accuracy || 0) * 100);
 
         this.chartInstances[canvasId] = new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: labels,
                 datasets: [{
-                    label: 'Validation Accuracy (%)',
+                    label: 'Validation Brier Score (%)',
                     data: data,
                     backgroundColor: [
                         'rgba(59, 130, 246, 0.6)', 
@@ -744,7 +769,7 @@ const Renderers = {
                     legend: { display: false },
                     tooltip: {
                         callbacks: {
-                            label: (context) => `Accuracy: ${context.parsed.y.toFixed(1)}%`
+                            label: (context) => `Brier Score: ${context.parsed.y.toFixed(1)}%`
                         }
                     }
                 },

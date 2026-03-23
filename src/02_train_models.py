@@ -4,7 +4,7 @@ import pandas as pd
 import joblib
 from datetime import datetime
 from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import f1_score
 from tqdm import tqdm
 
 from src.firebase_client import FirebaseClient
@@ -55,15 +55,15 @@ def train_model(X_train, y_train):
 
 def evaluate_model(model, X_val, y_val, name):
     """
-    Evaluate the model on validation data and return metrics.
+    Evaluate the model on validation data and return Brier Score and F1.
     """
     preds = model.predict(X_val)
-    acc = accuracy_score(y_val, preds)
-    prec = precision_score(y_val, preds, zero_division=0)
-    rec = recall_score(y_val, preds, zero_division=0)
+    probs = model.predict_proba(X_val)[:, 1]
+    
+    brier = 1.0 - np.mean((probs - y_val)**2)
     f1 = f1_score(y_val, preds, zero_division=0)
     
-    return acc, prec, rec, f1
+    return brier, f1
 
 def save_model(model, path):
     """
@@ -76,11 +76,11 @@ def save_model(model, path):
 def push_model_registry(results: list) -> None:
     """Push trained model metadata to Firebase."""
     client = FirebaseClient()
-    for name, period, acc, f1 in results:
+    for name, period, brier, f1 in results:
         client.save_document('model_registry', name.lower().replace(' ', '_'), {
             'model_name': name,
             'train_period': period,
-            'val_accuracy': round(float(acc), 4),
+            'val_brier_score': round(float(brier), 4),
             'f1_score': round(float(f1), 4),
             'trained_at': datetime.now().isoformat()
         })
@@ -118,16 +118,16 @@ def main():
         model = train_model(X_train, y_train)
         
         # 4. Evaluate only on Validation Set
-        acc, prec, rec, f1 = evaluate_model(model, X_val, y_val, w["name"])
+        brier, f1 = evaluate_model(model, X_val, y_val, w["name"])
         
         train_period_str = f"{w['start']} to {w['end']}"
-        results.append((w['name'], train_period_str, acc, f1))
+        results.append((w['name'], train_period_str, brier, f1))
         
         # 5. Save model
         save_model(model, w["save_path"])
         
     print("\n" + "="*70)
-    print(f"{'Model':<15} | {'Train Period':<25} | {'Val Accuracy':<12} | {'F1':<8}")
+    print(f"{'Model':<15} | {'Train Period':<25} | {'Val Brier':<12} | {'F1':<8}")
     print("-" * 70)
     for res in results:
         print(f"{res[0]:<15} | {res[1]:<25} | {res[2]:<12.4f} | {res[3]:<8.4f}")
