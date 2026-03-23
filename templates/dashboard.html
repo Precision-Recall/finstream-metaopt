@@ -96,8 +96,8 @@
         </div>
         <div class="stat-cards">
             <div class="stat-card">
-                <div class="stat-label">Model Accuracy (Rolling)</div>
-                <div class="stat-value" id="liveOverviewAcc">—</div>
+                <div class="stat-label">Model Brier Score (Rolling)</div>
+                <div class="stat-value" id="liveOverviewBrier">—</div>
                 <div class="stat-meta" id="liveOverviewAccLabel">Rolling 30d</div>
             </div>
             <div class="stat-card">
@@ -111,11 +111,11 @@
         </div>
         <div class="chart-card" style="margin-top: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h3>Live Prediction Accuracy</h3>
+                <h3>Live Prediction Brier Score</h3>
                 <small id="liveOverviewAccLabel" style="color: var(--text-dim);"></small>
             </div>
             <div class="chart-container" style="height: 300px;">
-                <canvas id="liveOverviewCanvas"></canvas>
+                <canvas id="liveOverviewBrierCanvas"></canvas>
             </div>
         </div>
     </div>
@@ -129,16 +129,16 @@
         <!-- Summary Stats -->
         <div class="stat-cards">
             <div class="stat-card">
-                <div class="stat-label">Static Accuracy</div>
-                <div class="stat-value" id="overviewStaticAcc">—</div>
+                <div class="stat-label">Static Brier Score</div>
+                <div class="stat-value" id="overviewStaticBrier">—</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Adaptive Accuracy</div>
-                <div class="stat-value" id="overviewAdaptiveAcc">—</div>
+                <div class="stat-label">Adaptive Brier Score</div>
+                <div class="stat-value" id="overviewAdaptiveBrier">—</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Accuracy Delta</div>
-                <div class="stat-value" id="overviewDelta">—</div>
+                <div class="stat-label">Brier Score Delta</div>
+                <div class="stat-value" id="overviewBrierDelta">—</div>
                 <div class="stat-meta">Adaptive − Static</div>
             </div>
             <div class="stat-card">
@@ -158,8 +158,8 @@
         <!-- Mini Charts -->
         <div class="two-col">
             <div class="chart-card">
-                <h3 id="overviewAccuracyCanvasLabel">Rolling Accuracy (30D)</h3>
-                <canvas id="overviewAccuracyCanvas" height="200"></canvas>
+                <h3 id="overviewAccuracyCanvasLabel">Rolling Brier Score (30D)</h3>
+                <canvas id="overviewBrierCanvas" height="200"></canvas>
             </div>
             <div class="chart-card">
                 <h3>Weight Evolution</h3>
@@ -190,12 +190,12 @@
 <!-- ACCURACY TAB -->
 <section id="accuracy" class="tab-section">
     <div class="section-header">
-        <h2>Accuracy Comparison</h2>
-        <small id="accuracyCanvasLabel">Rolling 30-day average | Vertical lines: drift events</small>
+        <h2>Brier Score Comparison</h2>
+        <small id="brierCanvasLabel">Rolling 30-day average | Vertical lines: drift events</small>
     </div>
     <div class="chart-card">
         <div class="chart-container">
-            <canvas id="accuracyCanvas"></canvas>
+            <canvas id="brierCanvas"></canvas>
         </div>
         <div id="accuracyLegend" class="chart-legend"></div>
     </div>
@@ -268,9 +268,9 @@
     <div id="modelCardsContainer" class="model-cards"></div>
     
     <div class="chart-card" style="margin-top: 20px;">
-        <h3>Validation Accuracy Comparison</h3>
+        <h3>Validation Brier Score Comparison</h3>
         <div class="chart-container" style="min-height: 240px;">
-            <canvas id="modelAccuracyCanvas"></canvas>
+            <canvas id="modelBrierCanvas"></canvas>
         </div>
     </div>
 </section>

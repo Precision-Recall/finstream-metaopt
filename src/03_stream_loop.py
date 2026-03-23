@@ -310,12 +310,13 @@ def main():
         for event in drift_events:
             print(f"  - {event['date']} (Row {event['row_index']})")
             
-    acc_static = 1.0 - sum(r['error'] for r in results_static) / len(results_static)
-    acc_adaptive = 1.0 - sum(r['error'] for r in results_adaptive) / len(results_adaptive)
+    # Use Brier-based score (1 - BS) for simulation performance
+    brier_static = sum(1.0 - (r['ensemble_probability'] - r['truth'])**2 for r in results_static) / len(results_static) if results_static else 0.0
+    brier_adaptive = sum(1.0 - (r['ensemble_probability'] - r['truth'])**2 for r in results_adaptive) / len(results_adaptive) if results_adaptive else 0.0
     
-    print(f"\nFinal Static Accuracy:   {acc_static:.4f}")
-    print(f"Final Adaptive Accuracy: {acc_adaptive:.4f}")
-    print(f"Accuracy Delta:          {(acc_adaptive - acc_static):.4f}")
+    print(f"\nFinal Static Brier Score:   {brier_static:.4f}")
+    print(f"Final Adaptive Brier Score: {brier_adaptive:.4f}")
+    print(f"Brier Score Delta:          {(brier_adaptive - brier_static):.4f}")
     
     # Council Weight Evolution
     print("\nCouncil Weight Evolution:")
@@ -335,9 +336,9 @@ def main():
     
     # Build summary dict and push to Firebase (required)
     simulation_summary = {
-        'static_accuracy': round(acc_static, 4),
-        'adaptive_accuracy': round(acc_adaptive, 4),
-        'delta': round(acc_adaptive - acc_static, 4),
+        'static_brier_score': round(brier_static, 4),
+        'adaptive_brier_score': round(brier_adaptive, 4),
+        'delta': round(brier_adaptive - brier_static, 4),
         'drift_count': len(drift_events),
         'total_days': len(df_test),
         'resolved_predictions': len(results_static),

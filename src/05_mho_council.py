@@ -27,7 +27,7 @@ def evaluate_fitness(
     precomputed_probs: Dict[str, np.ndarray]
 ) -> float:
     """
-    Evaluate fitness of a solution as ensemble accuracy.
+    Evaluate fitness of a solution as ensemble Brier Score.
 
     Args:
         solution: 11D numpy array [feature_flags (0-7), weights (8-10)]
@@ -39,7 +39,7 @@ def evaluate_fitness(
                           each is (n_rows, 2) probability array
 
     Returns:
-        accuracy score (0.0 penalty if <3 active features)
+        Brier Score (0.0 penalty if <3 active features)
     """
     # Extract feature flags
     feature_flags = solution[:8]
@@ -69,19 +69,15 @@ def evaluate_fitness(
     # Get true labels (last column of resolved_df)
     y_true = resolved_df[:, -1].astype(int)
 
-    # Compute accuracy
-    accuracy = np.mean(predictions == y_true)
+    # Compute Brier-based score (1 - MSE)
+    # This is a proper scoring rule that accounts for both accuracy and calibration
+    brier_score = 1.0 - np.mean((ensemble_prob - y_true)**2)
     
-    # Compute confidence bonus (entropy-based)
-    # Binary cross-entropy of predicted probabilities
-    entropy = -np.mean(
-        ensemble_prob * np.log(ensemble_prob + 1e-9) + 
-        (1 - ensemble_prob) * np.log(1 - ensemble_prob + 1e-9)
-    )
-    confidence_bonus = 1 - (entropy / np.log(2))  # normalized 0-1
+    # Feature Parsimony (small penalty for more features to avoid overfitting)
+    parsimony_penalty = 0.01 * (len(active_indices) / len(all_features))
     
-    # Composite fitness: favor accuracy with confidence
-    fitness = 0.7 * accuracy + 0.3 * confidence_bonus
+    # Composite fitness: favor Brier Score with slight parsimony
+    fitness = brier_score - parsimony_penalty
     return float(fitness)
 
 

@@ -63,7 +63,7 @@ SYSTEM_CONFIG = {
     "optimization": {
         "dimensions": 11,
         "algorithms": ["PSO", "GA", "GWO"],
-        "fitness": "70% Accuracy + 30% Confidence (Entropy-based)"
+        "fitness": "Brier Score (1 - MSE) + Parsimony Penalty"
     }
 }
 

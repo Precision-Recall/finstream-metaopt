@@ -80,7 +80,7 @@ async function loadData() {
         
         // Transform simulation results into staticData and streamData
         dashboardState.staticData = {
-            accuracy: summary.static_accuracy || 0.918,
+            brier_score: summary.static_brier_score || 0.918,
             precision: 0.895,
             recall: 0.902,
             f1_score: 0.898,
@@ -100,7 +100,7 @@ async function loadData() {
             uptime_percentage: 99.7,
             last_updated: new Date().toISOString(),
             active_since: '2024-01-15T08:00:00Z',
-            latest_accuracy: summary.adaptive_accuracy || 0.912,
+            latest_brier_score: summary.adaptive_brier_score || 0.912,
             latest_drift_check: new Date().toISOString(),
             predictions_since_baseline: simulation.adaptive ? simulation.adaptive.length : 0,
             detected_anomalies: driftEvents.length,
@@ -177,10 +177,10 @@ function switchTab(tabName) {
 function initializeOverview() {
     if (!dashboardState.staticData) return;
     
-    const { accuracy, f1_score, precision, recall, auc } = dashboardState.staticData;
+    const { brier_score, f1_score, precision, recall, auc } = dashboardState.staticData;
     
     // Update stat cards
-    updateStatCard('accuracy-value', (accuracy * 100).toFixed(1), '%');
+    updateStatCard('accuracy-value', (brier_score * 100).toFixed(1), '%');
     updateStatCard('f1-value', (f1_score * 100).toFixed(1), '%');
     updateStatCard('precision-value', (precision * 100).toFixed(1), '%');
     updateStatCard('recall-value', (recall * 100).toFixed(1), '%');
@@ -220,11 +220,11 @@ function createPerformanceComparisonChart() {
     const chart = new Chart(ctx, {
         type: 'radar',
         data: {
-            labels: ['Accuracy', 'Precision', 'Recall', 'F1-Score', 'AUC'],
+            labels: ['Brier Score', 'Precision', 'Recall', 'F1-Score', 'AUC'],
             datasets: [{
                 label: 'Baseline Performance',
                 data: [
-                    metrics.accuracy * 100,
+                    metrics.brier_score * 100,
                     metrics.precision * 100,
                     metrics.recall * 100,
                     metrics.f1_score * 100,
@@ -266,8 +266,8 @@ function createConfusionMatrixChart() {
     if (!ctx) return;
     
     const metrics = dashboardState.staticData;
-    const tp = Math.round(metrics.accuracy * 1000);
-    const tn = Math.round(metrics.accuracy * 900);
+    const tp = Math.round(metrics.brier_score * 1000);
+    const tn = Math.round(metrics.brier_score * 900);
     const fp = Math.round((1 - metrics.precision) * 500);
     const fn = Math.round((1 - metrics.recall) * 500);
     
@@ -577,7 +577,7 @@ function createModelComparisonChart() {
     const chart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: ['Accuracy', 'Precision', 'Recall', 'F1-Score', 'AUC'],
+            labels: ['Brier Score', 'Precision', 'Recall', 'F1-Score', 'AUC'],
             datasets: [
                 {
                     label: 'LightGBM',
