@@ -325,6 +325,58 @@ def run_evaluate():
             'timestamp': datetime.now().isoformat()
         }), 500
 
+@app.route('/run/evaluate_pending', methods=['GET', 'POST'])
+@require_cron_token
+def run_evaluate_pending():
+    """Trigger pending evaluation job for recent unresolved predictions."""
+    try:
+        logger.info("=" * 60)
+        logger.info("INCOMING REQUEST: /run/evaluate_pending")
+        logger.info(f"Timestamp: {datetime.now().isoformat()}")
+        logger.info("=" * 60)
+        
+        n_preds = int(request.args.get('n', 10))
+        
+        scheduler_module = importlib.import_module('src.07_scheduler')
+        initialize_system = scheduler_module.initialize_system
+        evaluate_pending = scheduler_module.evaluate_pending_predictions
+        
+        logger.info("Calling initialize_system()...")
+        initialize_system()
+        
+        logger.info(f"Calling evaluate_pending_predictions(n={n_preds})...")
+        result = evaluate_pending(n=n_preds)
+        
+        logger.info(f"evaluate_pending_predictions() returned: {result}")
+        
+        if result.get('status') == 'error':
+            logger.critical(f"PENDING EVALUATION JOB FAILED: {result.get('reason')}")
+            return jsonify({
+                'status': 'error', 
+                'job': 'evaluate_pending',
+                'result': result,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+        
+        logger.info("PENDING EVALUATION JOB COMPLETED SUCCESSFULLY")
+        return jsonify({
+            'status': 'ok', 
+            'job': 'evaluate_pending',
+            'result': result,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.critical(f"UNHANDLED EXCEPTION in /run/evaluate_pending: {e}")
+        logger.critical(f"Error type: {type(e).__name__}")
+        import traceback
+        logger.critical(traceback.format_exc())
+        return jsonify({
+            'status': 'error', 
+            'job': 'evaluate_pending',
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
 @app.route('/api/diagnostics')
 def api_diagnostics():
     """Diagnostic endpoint to verify Firestore connectivity and data availability."""
