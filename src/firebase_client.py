@@ -461,10 +461,32 @@ class FirebaseClient:
             list of prediction dicts, or empty list on error.
         """
         try:
-            # Note: REST API requires full implementation in backend
-            # This is a placeholder
-            logger.warning("get_recent_predictions: Full implementation requires backend")
-            return []
+            url = self._build_url("predictions")
+            response = self.session.get(
+                url, 
+                params={**self._get_params(), "pageSize": 100},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                docs = data.get("documents", [])
+                
+                parsed = []
+                for doc in docs:
+                    if "fields" in doc:
+                        pred = {
+                            key: _from_firestore_value(value)
+                            for key, value in doc["fields"].items()
+                        }
+                        parsed.append(pred)
+                
+                # Sort by date descending
+                parsed.sort(key=lambda x: str(x.get('date', '')), reverse=True)
+                return parsed[:n]
+            else:
+                logger.error(f"Failed to get recent predictions: {response.status_code} {response.text}")
+                return []
         
         except Exception as e:
             logger.error(f"Error getting recent predictions: {e}")

@@ -538,6 +538,175 @@ def daily_evaluate():
         return {'status': 'error', 'reason': 'exception', 'error_message': str(e)}
 
 
+def evaluate_pending_predictions(n: int = 10):
+    """
+    Evaluate pending predictions that have not been evaluated yet.
+    Useful for manual triggers or backfilling.
+    """
+    global active_features, ensemble_weights, adwin, models, council, ALL_FEATURES
+    
+    logger.info("=" * 60)
+    logger.info(f"JOB: evaluate_pending_predictions (last {n})")
+    logger.info("=" * 60)
+    
+    try:
+        if not firebase_client:
+            logger.critical("FIREBASE CLIENT NOT AVAILABLE - CANNOT EVALUATE")
+            return {'status': 'error', 'reason': 'firebase_unavailable'}
+            
+        recent_preds = firebase_client.get_recent_predictions(n)
+        if not recent_preds:
+            logger.info("No recent predictions found.")
+            return {'status': 'success', 'evaluated_count': 0}
+            
+        evaluated_count = 0
+        today = datetime.now(IST).date()
+        ticker = yf.Ticker(NIFTY_TICKER)
+        
+        # We process oldest to newest within the recent batch to maintain temporal order roughly
+        recent_preds = list(reversed(recent_preds))
+        
+        for pred in recent_preds:
+            if pred.get('resolved', False):
+                continue
+                
+            pred_date_str = pred.get('date')
+            if not pred_date_str:
+                continue
+                
+            pred_date = datetime.strptime(pred_date_str, '%Y-%m-%d').date()
+            
+            # Target maturity date: 5 business days later
+            dates = pd.bdate_range(start=pred_date, periods=6)
+            eval_date = dates[-1].date()
+            
+            if today < eval_date:
+                logger.info(f"Prediction for {pred_date_str} not yet mature (matures on {eval_date}).")
+                continue
+                
+            logger.info(f"Evaluating pending prediction from {pred_date_str}")
+            
+            try:
+                # Fetch price history exactly as needed
+                hist = ticker.history(
+                    start=pred_date - timedelta(days=1),
+                    end=eval_date + timedelta(days=5) # padding to ensure we get eval_date
+                )
+                
+                if len(hist) < 2:
+                    logger.warning(f"Insufficient price data for {pred_date_str}")
+                    continue
+                
+                # Get close on pred_date (or last available before it)
+                hist_pred = hist[hist.index.date <= pred_date]
+                close_at_prediction = hist_pred['Close'].iloc[-1] if not hist_pred.empty else hist['Close'].iloc[0]
+                
+                # Get close on eval_date (or last available before it)
+                hist_eval = hist[hist.index.date <= eval_date]
+                close_5_days_later = hist_eval['Close'].iloc[-1] if not hist_eval.empty else hist['Close'].iloc[-1]
+                
+                truth = 1 if close_5_days_later > close_at_prediction else 0
+                
+                predicted_value = pred.get('prediction', 0)
+                predicted_prob = pred.get('ensemble_probability', 0.5)
+                error = 1 if predicted_value != truth else 0
+                continuous_error = abs(predicted_prob - truth)
+                
+                # Update ADWIN
+                adwin.update(continuous_error)
+                drift_flag = adwin.drift_detected
+                
+                evaluation_dict = {
+                    'date': pred_date_str,
+                    'prediction': int(predicted_value),
+                    'truth': int(truth),
+                    'error': int(error),
+                    'continuous_error': round(float(continuous_error), 6),
+                    'adwin_updated': True,
+                    'drift_detected': drift_flag,
+                    'evaluated_at': datetime.now(IST).isoformat()
+                }
+                
+                if not firebase_client.save_evaluation(evaluation_dict):
+                    logger.error(f"Failed to save evaluation for {pred_date_str}")
+                    continue
+                    
+                evaluated_count += 1
+                logger.info(f"✓ Evaluation saved for {pred_date_str}. Error: {error}, Drift: {drift_flag}")
+                
+                if drift_flag:
+                    logger.info("⚠️ DRIFT DETECTED during pending evaluation!")
+                    
+                    old_active_features = active_features.copy()
+                    old_ensemble_weights = ensemble_weights.copy()
+                    
+                    resolved_df_mock = pd.DataFrame({
+                        'RSI_14': [0.5] * 60, 'MACD': [0.0] * 60, 'MACD_Signal': [0.0] * 60,
+                        'MACD_Diff': [0.0] * 60, 'BB_Position': [0.5] * 60, 'MA_5_20_Ratio': [1.0] * 60,
+                        'Volume_Change_Pct': [0.01] * 60, 'Yesterday_Return': [0.005] * 60,
+                        'Target': [1] * 60
+                    })
+                    
+                    result = council.optimize(
+                        models=models,
+                        resolved_df=resolved_df_mock,
+                        all_features=ALL_FEATURES
+                    )
+                    
+                    active_features = result['active_features']
+                    ensemble_weights = result['ensemble_weights']
+                    
+                    drift_dict = {
+                        'date': pred_date_str,
+                        'row_index': 0,
+                        'w_old_before': round(float(old_ensemble_weights[0]), 4),
+                        'w_medium_before': round(float(old_ensemble_weights[1]), 4),
+                        'w_recent_before': round(float(old_ensemble_weights[2]), 4),
+                        'w_old_after': round(float(ensemble_weights[0]), 4),
+                        'w_medium_after': round(float(ensemble_weights[1]), 4),
+                        'w_recent_after': round(float(ensemble_weights[2]), 4),
+                        'active_features_before': ','.join(old_active_features),
+                        'active_features_after': ','.join(active_features),
+                        'fit_pso': result['algorithm_fitnesses']['pso'],
+                        'fit_ga': result['algorithm_fitnesses']['ga'],
+                        'fit_gwo': result['algorithm_fitnesses']['gwo'],
+                        'cw_pso': result['council_weights']['pso'],
+                        'cw_ga': result['council_weights']['ga'],
+                        'cw_gwo': result['council_weights']['gwo'],
+                        'detected_at': datetime.now(IST).isoformat()
+                    }
+                    firebase_client.save_drift_event(drift_dict)
+                    
+                    state_update = {
+                        'active_features': active_features,
+                        'ensemble_weights': {
+                            'old': ensemble_weights[0], 'medium': ensemble_weights[1], 'recent': ensemble_weights[2]
+                        },
+                        'council_weights': result['council_weights'],
+                        'drift_count': 1,
+                        'last_drift_date': pred_date_str,
+                        'updated_at': datetime.now(IST).isoformat()
+                    }
+                    firebase_client.update_model_state(state_update)
+                    
+                    adwin = ADWIN(delta=ADWIN_DELTA)
+                    logger.info("✓ ADWIN reset")
+
+            except Exception as e:
+                logger.error(f"Error evaluating {pred_date_str}: {e}")
+                continue
+                
+        logger.info(f"evaluate_pending_predictions completed. Evaluated: {evaluated_count}")
+        return {'status': 'success', 'evaluated_count': evaluated_count}
+        
+    except Exception as e:
+        logger.critical(f"CRITICAL ERROR in evaluate_pending_predictions: {e}")
+        import traceback
+        logger.critical(f"Traceback: {traceback.format_exc()}")
+        return {'status': 'error', 'reason': 'exception', 'error_message': str(e)}
+
+
+
 def start_scheduler():
     """Start APScheduler with the two daily jobs."""
     logger.info("Starting APScheduler...")
