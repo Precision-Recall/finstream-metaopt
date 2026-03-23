@@ -157,17 +157,17 @@ def is_market_holiday() -> bool:
     return today.weekday() >= 5
 
 
-def engineer_today_features() -> Optional[pd.DataFrame]:
+def engineer_today_features() -> Tuple[Optional[pd.DataFrame], str]:
     """
     Fetch NIFTY data and engineer features for today.
     
     Returns:
-        DataFrame with one row of features, or None on error.
+        (DataFrame, error_string)
     """
     try:
         if is_market_holiday() and not TEST_MODE:
             logger.info("Market holiday — skipping prediction")
-            return None
+            return None, "market_holiday"
         
         # Fetch last 60 days of NIFTY data
         ticker = yf.Ticker(NIFTY_TICKER)
@@ -175,7 +175,7 @@ def engineer_today_features() -> Optional[pd.DataFrame]:
         
         if hist is None or len(hist) == 0:
             logger.error("Failed to fetch NIFTY data")
-            return None
+            return None, "yfinance_returned_empty_dataframe"
         
         # Engineer features
         close = hist['Close']
@@ -225,15 +225,16 @@ def engineer_today_features() -> Optional[pd.DataFrame]:
         df = df.dropna()
         if len(df) == 0:
             logger.error("No valid features after dropping NaN")
-            return None
+            return None, "no_valid_features_after_dropna"
         
         features_today = df.iloc[[-1]]  # Last row as DataFrame
         logger.info(f"✓ Features engineered for {len(df)} days available")
-        return features_today
+        return features_today, ""
     
     except Exception as e:
         logger.error(f"Error engineering features: {e}")
-        return None
+        import traceback
+        return None, f"Exception: {str(e)} | Traceback: {traceback.format_exc()}"
 
 
 def daily_predict():
@@ -267,10 +268,10 @@ def daily_predict():
             return {'status': 'error', 'reason': 'firebase_unavailable'}
         
         # Engineer features
-        features_today = engineer_today_features()
+        features_today, error_msg = engineer_today_features()
         if features_today is None:
-            logger.error("Failed to engineer features")
-            return {'status': 'error', 'reason': 'feature_engineering_failed'}
+            logger.error(f"Failed to engineer features: {error_msg}")
+            return {'status': 'error', 'reason': 'feature_engineering_failed', 'details': error_msg}
         
         # Make prediction
         today_str = datetime.now(IST).strftime('%Y-%m-%d')
