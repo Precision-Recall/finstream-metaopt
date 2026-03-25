@@ -19,6 +19,7 @@ dependencies = [
     "river>=0.23.0",
     "scikit-learn>=1.8.0",
     "strands-agents>=1.32.0",
+    "strands-agents-builder>=0.1.10",
     "ta>=0.11.0",
     "tqdm>=4.67.3",
     "xgboost>=3.2.0",
