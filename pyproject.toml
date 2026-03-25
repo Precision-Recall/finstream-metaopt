@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "apscheduler>=3.11.2",
+    "awscli>=1.44.64",
+    "boto3>=1.42.74",
     "firebase-admin>=7.2.0",
     "flask>=3.0.0",
     "joblib>=1.5.3",
@@ -16,7 +18,10 @@ dependencies = [
     "requests>=2.31.0",
     "river>=0.23.0",
     "scikit-learn>=1.8.0",
+    "strands-agents>=1.32.0",
     "ta>=0.11.0",
     "tqdm>=4.67.3",
     "xgboost>=3.2.0",
+    "yfinance",
+    "gunicorn",
 ]
