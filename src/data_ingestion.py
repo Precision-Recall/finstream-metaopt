@@ -1,5 +1,6 @@
 import yfinance as yf
 import pandas as pd
+from src.yfinance_session import get_yf_session
 
 def flatten_multiindex_columns(df: pd.DataFrame) -> pd.DataFrame:
     """

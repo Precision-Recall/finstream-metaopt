@@ -24,6 +24,8 @@ from datetime import datetime, timedelta
 from typing import Dict, Tuple, Optional
 import pytz
 
+from src.yfinance_session import yf_fetch_with_retry
+
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
 from river.drift import ADWIN
@@ -157,25 +159,24 @@ def is_market_holiday() -> bool:
     return today.weekday() >= 5
 
 
-def engineer_today_features() -> Tuple[Optional[pd.DataFrame], str]:
+def engineer_today_features() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], str]:
     """
     Fetch NIFTY data and engineer features for today.
     
     Returns:
-        (DataFrame, error_string)
+        (features_df, raw_hist_df, error_string)
     """
     try:
         if is_market_holiday() and not TEST_MODE:
             logger.info("Market holiday — skipping prediction")
             return None, "market_holiday"
         
-        # Fetch last 60 days of NIFTY data
-        ticker = yf.Ticker(NIFTY_TICKER)
-        hist = ticker.history(period='60d')
+        # Fetch last 60 days of NIFTY data using retry wrapper
+        hist = yf_fetch_with_retry(NIFTY_TICKER, period='60d')
         
         if hist is None or len(hist) == 0:
             logger.error("Failed to fetch NIFTY data")
-            return None, "yfinance_returned_empty_dataframe"
+            return None, None, "yfinance_returned_empty_dataframe"
         
         # Engineer features
         close = hist['Close']
@@ -229,12 +230,12 @@ def engineer_today_features() -> Tuple[Optional[pd.DataFrame], str]:
         
         features_today = df.iloc[[-1]]  # Last row as DataFrame
         logger.info(f"✓ Features engineered for {len(df)} days available")
-        return features_today, ""
+        return features_today, hist, ""
     
     except Exception as e:
         logger.error(f"Error engineering features: {e}")
         import traceback
-        return None, f"Exception: {str(e)} | Traceback: {traceback.format_exc()}"
+        return None, None, f"Exception: {str(e)} | Traceback: {traceback.format_exc()}"
 
 
 def daily_predict():
@@ -268,7 +269,7 @@ def daily_predict():
             return {'status': 'error', 'reason': 'firebase_unavailable'}
         
         # Engineer features
-        features_today, error_msg = engineer_today_features()
+        features_today, hist, error_msg = engineer_today_features()
         if features_today is None:
             logger.error(f"Failed to engineer features: {error_msg}")
             return {'status': 'error', 'reason': 'feature_engineering_failed', 'details': error_msg}
@@ -291,6 +292,7 @@ def daily_predict():
             'prediction': int(pred),
             'prediction_label': pred_label,
             'ensemble_probability': round(float(prob), 6),
+            'close_at_prediction': round(float(hist['Close'].iloc[-1]), 4),
             'w_old': round(float(ensemble_weights[0]), 4),
             'w_medium': round(float(ensemble_weights[1]), 4),
             'w_recent': round(float(ensemble_weights[2]), 4),
@@ -382,19 +384,32 @@ def daily_evaluate():
         
         # Fetch actual price data
         try:
-            ticker = yf.Ticker(NIFTY_TICKER)
-            # Get close price on target date and check if it went up
-            hist = ticker.history(
-                start=target_date - timedelta(days=1),
-                end=today + timedelta(days=1)
-            )
+            # Step A: Get close_at_prediction (Price on the day of prediction)
+            # Try to read from Firebase first to avoid yfinance call
+            close_at_prediction = prediction.get('close_at_prediction')
             
-            if len(hist) < 2:
-                logger.warning(f"Insufficient price data for {target_date_str}")
-                return {'status': 'error', 'reason': 'insufficient_price_data'}
+            if close_at_prediction is None:
+                logger.warning(f"close_at_prediction missing from Firebase for {target_date_str}, falling back to yfinance")
+                # Fallback: fetch 10 days around target_date to find its close
+                hist_fallback = yf_fetch_with_retry(NIFTY_TICKER, period='10d')
+                # Filter indices <= target_date to find the closest available close
+                hist_target = hist_fallback[hist_fallback.index.date <= target_date]
+                if hist_target.empty:
+                    logger.error(f"Could not find historical data for {target_date_str} in fallback")
+                    return {'status': 'error', 'reason': 'fallback_price_fetch_failed'}
+                close_at_prediction = float(hist_target['Close'].iloc[-1])
             
-            close_at_prediction = hist['Close'].iloc[0]
-            close_5_days_later = hist['Close'].iloc[-1]
+            # Step B: Get close_5_days_later (Price today, or whenever the 5-day horizon matured)
+            # Use retry wrapper with 10d period
+            hist_eval = yf_fetch_with_retry(NIFTY_TICKER, period='10d')
+            # The calculation date for truth is today (or relative to target_date + 5 biz days)
+            # To be safe, we look for the last available close that is <= today (which should be the current price)
+            hist_eval_filtered = hist_eval[hist_eval.index.date <= today]
+            if hist_eval_filtered.empty:
+                logger.warning(f"No price data available for evaluation as of {today}")
+                return {'status': 'error', 'reason': 'eval_price_fetch_failed'}
+            
+            close_5_days_later = float(hist_eval_filtered['Close'].iloc[-1])
             
             # Truth: did price go UP (1) or DOWN (0) over 5 days?
             truth = 1 if close_5_days_later > close_at_prediction else 0
@@ -588,10 +603,11 @@ def evaluate_pending_predictions(n: int = 10):
             logger.info(f"Evaluating pending prediction from {pred_date_str}")
             
             try:
-                # Fetch price history exactly as needed
-                hist = ticker.history(
-                    start=pred_date - timedelta(days=1),
-                    end=eval_date + timedelta(days=5) # padding to ensure we get eval_date
+                # Fetch price history using retry wrapper
+                hist = yf_fetch_with_retry(
+                    NIFTY_TICKER, 
+                    start=pred_date - timedelta(days=2),
+                    end=eval_date + timedelta(days=5) 
                 )
                 
                 if len(hist) < 2:
