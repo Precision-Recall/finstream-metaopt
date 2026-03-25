@@ -9,6 +9,7 @@ import requests
 import os
 import logging
 import importlib
+import threading
 from datetime import datetime
 from functools import wraps
 
@@ -31,6 +32,9 @@ app = Flask(__name__,
 # CRON authentication
 CRON_SECRET = os.getenv('CRON_SECRET', '')
 
+# Tracks the last run status for each job (in-memory, reset on restart)
+_job_status = {}
+
 def require_cron_token(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -39,6 +43,30 @@ def require_cron_token(f):
             return jsonify({'error': 'unauthorized'}), 401
         return f(*args, **kwargs)
     return decorated
+
+def _run_job_in_background(job_name: str, job_fn, *args):
+    """Run a job function in a daemon thread and record its result in _job_status."""
+    def _worker():
+        _job_status[job_name] = {'status': 'running', 'started_at': datetime.now().isoformat()}
+        try:
+            result = job_fn(*args)
+            _job_status[job_name] = {
+                'status': 'done',
+                'result': result,
+                'finished_at': datetime.now().isoformat()
+            }
+            logger.info(f"{job_name} background thread finished: {result}")
+        except Exception as e:
+            import traceback
+            _job_status[job_name] = {
+                'status': 'error',
+                'error': str(e),
+                'traceback': traceback.format_exc(),
+                'finished_at': datetime.now().isoformat()
+            }
+            logger.critical(f"{job_name} background thread crashed: {e}")
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
 
 # ═══════════════════════════════════════════════════════
 # SYSTEM CONFIGURATION (Mirrored from Core Logic)
@@ -228,102 +256,53 @@ def api_live_evaluations():
 @app.route('/run/predict', methods=['GET', 'POST'])
 @require_cron_token
 def run_predict():
-    """Trigger daily prediction job."""
+    """Trigger daily prediction job asynchronously."""
+    logger.info("INCOMING REQUEST: /run/predict — firing background thread")
     try:
-        logger.info("=" * 60)
-        logger.info("INCOMING REQUEST: /run/predict")
-        logger.info(f"Timestamp: {datetime.now().isoformat()}")
-        logger.info("=" * 60)
-        
         scheduler_module = importlib.import_module('src.07_scheduler')
-        initialize_system = scheduler_module.initialize_system
-        daily_predict = scheduler_module.daily_predict
-        
-        logger.info("Calling initialize_system()...")
-        initialize_system()
-        
-        logger.info("Calling daily_predict()...")
-        result = daily_predict()
-        
-        logger.info(f"daily_predict() returned: {result}")
-        
-        if result.get('status') == 'error':
-            logger.critical(f"PREDICTION JOB FAILED: {result.get('reason')}")
-            return jsonify({
-                'status': 'error', 
-                'job': 'predict',
-                'result': result,
-                'timestamp': datetime.now().isoformat()
-            }), 500
-        
-        logger.info("PREDICTION JOB COMPLETED SUCCESSFULLY")
+        scheduler_module.initialize_system()
+        _run_job_in_background('predict', scheduler_module.daily_predict)
         return jsonify({
-            'status': 'ok', 
+            'status': 'accepted',
             'job': 'predict',
-            'result': result,
+            'message': 'Job started in background. Poll /api/job_status?job=predict for result.',
             'timestamp': datetime.now().isoformat()
-        })
+        }), 202
     except Exception as e:
         logger.critical(f"UNHANDLED EXCEPTION in /run/predict: {e}")
-        logger.critical(f"Error type: {type(e).__name__}")
         import traceback
         logger.critical(traceback.format_exc())
-        return jsonify({
-            'status': 'error', 
-            'job': 'predict',
-            'message': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
+        return jsonify({'status': 'error', 'job': 'predict', 'message': str(e)}), 500
 
 @app.route('/run/evaluate', methods=['GET', 'POST'])
 @require_cron_token
 def run_evaluate():
-    """Trigger daily evaluation job."""
+    """Trigger daily evaluation job asynchronously."""
+    logger.info("INCOMING REQUEST: /run/evaluate — firing background thread")
     try:
-        logger.info("=" * 60)
-        logger.info("INCOMING REQUEST: /run/evaluate")
-        logger.info(f"Timestamp: {datetime.now().isoformat()}")
-        logger.info("=" * 60)
-        
         scheduler_module = importlib.import_module('src.07_scheduler')
-        initialize_system = scheduler_module.initialize_system
-        daily_evaluate = scheduler_module.daily_evaluate
-        
-        logger.info("Calling initialize_system()...")
-        initialize_system()
-        
-        logger.info("Calling daily_evaluate()...")
-        result = daily_evaluate()
-        
-        logger.info(f"daily_evaluate() returned: {result}")
-        
-        if result.get('status') == 'error':
-            logger.critical(f"EVALUATION JOB FAILED: {result.get('reason')}")
-            return jsonify({
-                'status': 'error', 
-                'job': 'evaluate',
-                'result': result,
-                'timestamp': datetime.now().isoformat()
-            }), 500
-        
-        logger.info("EVALUATION JOB COMPLETED SUCCESSFULLY")
+        scheduler_module.initialize_system()
+        _run_job_in_background('evaluate', scheduler_module.daily_evaluate)
         return jsonify({
-            'status': 'ok', 
+            'status': 'accepted',
             'job': 'evaluate',
-            'result': result,
+            'message': 'Job started in background. Poll /api/job_status?job=evaluate for result.',
             'timestamp': datetime.now().isoformat()
-        })
+        }), 202
+
     except Exception as e:
         logger.critical(f"UNHANDLED EXCEPTION in /run/evaluate: {e}")
-        logger.critical(f"Error type: {type(e).__name__}")
         import traceback
         logger.critical(traceback.format_exc())
-        return jsonify({
-            'status': 'error', 
-            'job': 'evaluate',
-            'message': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
+        return jsonify({'status': 'error', 'job': 'evaluate', 'message': str(e)}), 500
+
+@app.route('/api/job_status')
+def api_job_status():
+    """Poll the last result of a background job. Use ?job=predict or ?job=evaluate."""
+    job = request.args.get('job')
+    if not job:
+        return jsonify(_job_status)
+    return jsonify(_job_status.get(job, {'status': 'not_started'}))
 
 @app.route('/run/evaluate_pending', methods=['GET', 'POST'])
 @require_cron_token
