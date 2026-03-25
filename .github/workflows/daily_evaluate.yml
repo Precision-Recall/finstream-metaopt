@@ -43,17 +43,19 @@ jobs:
         run: |
           HTTP_STATUS=$(curl -s -w "%{http_code}" -o response.txt \
             -X POST \
+            --max-time 60 \
+            --connect-timeout 10 \
             -H "X-Cron-Token: ${{ secrets.CRON_SECRET }}" \
             "${{ secrets.RENDER_URL }}/run/evaluate")
           echo "HTTP Status: $HTTP_STATUS"
           echo "Response Body:"
           cat response.txt
 
-          if [ "$HTTP_STATUS" != "200" ]; then
+          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "202" ]; then
             echo "Evaluate job failed with status $HTTP_STATUS"
             exit 1
           fi
-          echo "Evaluation job completed successfully"
+          echo "Evaluation job accepted by Render"
 
       - name: Log result
         if: always()
