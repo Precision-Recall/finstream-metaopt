@@ -260,8 +260,10 @@ def run_predict():
     logger.info("INCOMING REQUEST: /run/predict — firing background thread")
     try:
         scheduler_module = importlib.import_module('src.07_scheduler')
-        scheduler_module.initialize_system()
-        _run_job_in_background('predict', scheduler_module.daily_predict)
+        def _predict_job():
+            scheduler_module.initialize_system()
+            return scheduler_module.daily_predict()
+        _run_job_in_background('predict', _predict_job)
         return jsonify({
             'status': 'accepted',
             'job': 'predict',
@@ -281,8 +283,10 @@ def run_evaluate():
     logger.info("INCOMING REQUEST: /run/evaluate — firing background thread")
     try:
         scheduler_module = importlib.import_module('src.07_scheduler')
-        scheduler_module.initialize_system()
-        _run_job_in_background('evaluate', scheduler_module.daily_evaluate)
+        def _evaluate_job():
+            scheduler_module.initialize_system()
+            return scheduler_module.daily_evaluate()
+        _run_job_in_background('evaluate', _evaluate_job)
         return jsonify({
             'status': 'accepted',
             'job': 'evaluate',
