@@ -1,6 +1,8 @@
+import os
 from strands import Agent
 from strands.models import BedrockModel
 from tools.context import firebase_context
+from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands.vended_plugins.skills import AgentSkills
 #Creating a BedrockModel
 
@@ -25,7 +27,7 @@ SYSTEM_PROMPT = """You are the Finstream assistant. You have access to:
    how the system works (drift detection, MHO council, feature engineering etc.)"""
 
 #Creating an Agent
-
+app = BedrockAgentCoreApp()
 def create_agent() -> Agent:
     return Agent(
         model=bedrock_model,
@@ -36,18 +38,26 @@ def create_agent() -> Agent:
 
 agent = create_agent()
 
-def handler(payload, context=None):
-    message = payload.get("message", "")
-    history = payload.get("history", [])
+@app.entrypoint
+def chatbot(request):
+    try:
+        body = request.json()
 
-    conversation = ""
-    for turn in history:
-        role = turn.get("role", "")
-        content = turn.get("content", "")
-        conversation += f"{role}: {content}\n"
+        message = body.get("message", "")
+        history = body.get("history", [])
 
-    conversation += f"user: {message}"
+        conversation = ""
+        for turn in history:
+            conversation += f"{turn['role']}: {turn['content']}\n"
 
-    response = agent(conversation)
+        conversation += f"user: {message}"
 
-    return {"response": str(response)}
+        response = agent(conversation)
+
+        return {"response": str(response)}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+if __name__ == "__main__":
+    app.run()

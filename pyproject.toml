@@ -25,4 +25,5 @@ dependencies = [
     "xgboost>=3.2.0",
     "yfinance",
     "gunicorn",
+    "bedrock-agentcore>=1.4.7",
 ]
