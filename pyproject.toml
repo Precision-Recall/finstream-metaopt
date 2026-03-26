@@ -26,4 +26,5 @@ dependencies = [
     "yfinance",
     "gunicorn",
     "bedrock-agentcore>=1.4.7",
+    "chalice>=1.32.0",
 ]
