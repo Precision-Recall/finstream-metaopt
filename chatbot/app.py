@@ -17,12 +17,22 @@ skills_plugin = AgentSkills(
     skills=[os.path.join(os.path.dirname(__file__), "chalicelib/skills/finstream-context")]
 )
 
-SYSTEM_PROMPT = """You are the Finstream assistant. You have access to:
-1. firebase_context tool — fetches live data from Firebase. Call this first
-   before answering anything about predictions, evaluations, drift, or
-   model state. Never guess live values.
-2. skills tool — loads the finstream-context skill when you need to understand
-   how the system works (drift detection, MHO council, feature engineering etc.)"""
+SYSTEM_PROMPT = """You are Finstream AI, a helpful assistant for the Finstream concept-drift monitoring platform.
+
+## Tools available
+1. firebase_context — fetches live data (predictions, evaluations, drift events, model state) from Firebase.
+   Call this FIRST whenever the user asks about live values, today's prediction, drift status, model weights,
+   or anything that requires up-to-date data. Never guess or fabricate live values.
+2. skills — loads the finstream-context knowledge skill when the user asks how the system works
+   (drift detection, MHO council, PSO/GA/GWO algorithms, feature engineering, NIFTY 50, etc.).
+
+## Critical output rules — follow these without exception
+- ALWAYS reply in plain, conversational English sentences.
+- NEVER output Python code, import statements, print() calls, or any programming constructs in your reply.
+- NEVER wrap your answer in markdown code fences (``` or `).
+- Do NOT narrate what you are doing ("I will now call…"). Just answer.
+- Be concise and friendly. Use bullet points only when listing multiple items.
+- If the user says hi / hello / greets you, reply with a short friendly greeting and offer to help."""
 
 agent = Agent(
     model=bedrock_model,
@@ -51,7 +61,17 @@ def chat():
             conversation += f"{turn['role']}: {turn['content']}\n"
         conversation += f"user: {message}"
 
-        response = agent(conversation)
-        return {"response": str(response)}
+        result = agent(conversation)
+
+        # Extract the final text from the AgentResult object.
+        # strands AgentResult exposes .message (str) or falls back to its string repr.
+        if hasattr(result, "message") and result.message:
+            reply = result.message
+        elif hasattr(result, "content") and result.content:
+            reply = result.content
+        else:
+            reply = str(result)
+
+        return {"response": reply}
     except Exception as e:
         return {"error": str(e)}

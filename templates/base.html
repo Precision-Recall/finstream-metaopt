@@ -42,6 +42,42 @@
                 <span class="mode-icon"></span> SIMULATION
             </button>
         </div>
+        <!-- Chatbot Toggle — placed at the right edge -->
+        <button id="chatbotToggleBtn" class="chatbot-toggle-btn" title="Finstream AI Assistant">
+            <svg id="chatIconOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <svg id="chatIconClose" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <span id="chatBtnLabel">FINSTREAM AI</span>
+        </button>
+    </div>
+
+    <!-- ── Floating Chat Panel ── -->
+    <div id="chatPanel" class="chat-panel" aria-label="Finstream AI Chatbot" role="dialog" hidden>
+        <div class="chat-panel-header">
+            <div class="chat-panel-title">
+                <span class="live-dot" style="background:#3b82f6;"></span>
+                <span>Finstream AI</span>
+            </div>
+            <button id="chatClearBtn" class="chat-action-btn" title="Clear conversation">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            </button>
+        </div>
+
+        <div id="chatMessages" class="chat-messages">
+            <div class="chat-greeting">
+                <p class="chat-greeting-title">How can I help you?</p>
+                <p class="chat-greeting-sub">Ask about predictions, drift events, model weights, or system state.</p>
+            </div>
+        </div>
+
+        <div class="chat-input-row">
+            <button id="chatPlusBtn" class="chat-icon-btn" title="Options" aria-label="Options">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <input id="chatInput" class="chat-input" type="text" placeholder="Type a message..." autocomplete="off" />
+            <button id="chatSendBtn" class="chat-send-btn" title="Send" aria-label="Send message">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+            </button>
+        </div>
     </div>
 
     <!-- Navigation Tabs -->
@@ -72,6 +108,7 @@
     <script src="{{ url_for('static', filename='js/handlers.js') }}"></script>   <!-- Event handlers (depends on loaders) -->
     <script src="{{ url_for('static', filename='js/charts.js') }}"></script>     <!-- Chart helper functions -->
     <script src="{{ url_for('static', filename='js/live.js') }}"></script>       <!-- Entry point: orchestrates everything -->
+    <script src="{{ url_for('static', filename='js/chatbot.js') }}"></script>   <!-- Chatbot panel -->
     {% block scripts %}{% endblock %}
 </body>
 </html>
