@@ -72,7 +72,9 @@ def run_stream(models, df, feature_cols, adaptive=True):
     drift_log = []
     resolved_indices = []
     
-    adwin = ADWIN(delta=1) if adaptive else None
+    ADWIN_DELTA = 0.2    # highly sensitive — detects drift early to stay ahead of performance decay
+    MIN_WINDOW  = 120   # wider window: more data = better MHO Council optimization
+    adwin = ADWIN(delta=ADWIN_DELTA) if adaptive else None
     
     desc = "Adaptive Stream" if adaptive else "Static Stream"
     
@@ -117,9 +119,9 @@ def run_stream(models, df, feature_cols, adaptive=True):
                     old_weights = list(ensemble_weights)
                     old_features = list(active_features)
                     
-                    # Select last 60 resolved rows for optimization
-                    if len(resolved_indices) >= 60:
-                        eval_indices = resolved_indices[-60:]
+                    # Select last MIN_WINDOW resolved rows for optimization
+                    if len(resolved_indices) >= MIN_WINDOW:
+                        eval_indices = resolved_indices[-MIN_WINDOW:]
                     else:
                         eval_indices = resolved_indices
                     
@@ -130,7 +132,9 @@ def run_stream(models, df, feature_cols, adaptive=True):
                     result = council.optimize(
                         models=models,
                         resolved_df=resolved_df,
-                        all_features=feature_cols
+                        all_features=feature_cols,
+                        current_features=active_features,
+                        current_weights=ensemble_weights
                     )
                     
                     active_features = result['active_features']
@@ -158,8 +162,8 @@ def run_stream(models, df, feature_cols, adaptive=True):
                     }
                     drift_log.append(drift_event)
                     
-                    # Reset ADWIN
-                    adwin = ADWIN(delta=1)
+                    # Reset ADWIN with same tuned delta
+                    adwin = ADWIN(delta=ADWIN_DELTA)
             
             results_log.append({
                 'date': df.iloc[past_idx]['Date'],

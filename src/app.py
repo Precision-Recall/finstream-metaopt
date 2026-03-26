@@ -85,7 +85,7 @@ SYSTEM_CONFIG = {
     ],
     "drift": {
         "method": "ADWIN",
-        "delta": 1.0,
+        "delta": 0.2,
         "trigger": "Continuous Error (|pred_prob − truth|)"
     },
     "optimization": {
