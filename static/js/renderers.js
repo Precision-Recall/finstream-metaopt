@@ -146,13 +146,19 @@ const Renderers = {
 
         // Update summary stats
         const s = sim.summary;
+        console.log('📋 Simulation summary from /api/summary:', s);
+
+        const staticBrier  = s?.static_brier_score  != null ? s.static_brier_score  : null;
+        const adaptiveBrier = s?.adaptive_brier_score != null ? s.adaptive_brier_score : null;
+        const delta = s?.delta != null ? s.delta : null;
+
         const metrics = {
-            'overviewStaticBrier': `${(s.static_brier_score * 100).toFixed(2)}%`,
-            'overviewAdaptiveBrier': `${(s.adaptive_brier_score * 100).toFixed(2)}%`,
-            'overviewBrierDelta': `${(s.delta > 0 ? '+' : '')}${(s.delta * 100).toFixed(2)}%`,
-            'overviewDriftCount': s.drift_count || 0,
-            'overviewDays': s.total_days || 0,
-            'overviewPreds': s.resolved_predictions || 0
+            'overviewStaticBrier':   staticBrier  != null ? `${(staticBrier  * 100).toFixed(2)}%` : 'N/A',
+            'overviewAdaptiveBrier': adaptiveBrier != null ? `${(adaptiveBrier * 100).toFixed(2)}%` : 'N/A',
+            'overviewBrierDelta':    delta         != null ? `${(delta > 0 ? '+' : '')}${(delta * 100).toFixed(2)}%` : 'N/A',
+            'overviewDriftCount': s?.drift_count || 0,
+            'overviewDays': s?.total_days || 0,
+            'overviewPreds': s?.resolved_predictions || 0
         };
 
         Object.entries(metrics).forEach(([id, val]) => this._updateElement(id, val));

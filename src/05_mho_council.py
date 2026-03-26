@@ -28,57 +28,41 @@ def evaluate_fitness(
 ) -> float:
     """
     Evaluate fitness of a solution as ensemble Brier Score.
+    This version only considers weights (dims 8-10) for reliability.
 
     Args:
         solution: 11D numpy array [feature_flags (0-7), weights (8-10)]
-        models: dict with keys 'old', 'medium', 'recent' (not used directly,
-                probabilities are precomputed)
+        models: dict with keys 'old', 'medium', 'recent' (model instances)
         resolved_df: DataFrame of resolved rows with truth labels
         all_features: list of 8 feature column names
-        precomputed_probs: dict with keys 'old', 'medium', 'recent',
-                          each is (n_rows, 2) probability array
+        precomputed_probs: precomputed model probabilities
 
     Returns:
-        Brier Score (0.0 penalty if <3 active features)
+        Brier Score
     """
-    # Extract feature flags
-    feature_flags = solution[:8]
-    active_indices = np.where(feature_flags > 0.5)[0]
-
-    # Constraint 1: Penalize degenerate solutions
-    if len(active_indices) < 3:
-        return 0.0
-
-    # Extract and normalize ensemble weights
+    # Extract and normalize ensemble weights (dims 8-10)
     weights = solution[8:11]
     weights = np.abs(weights) / np.abs(weights).sum()
 
-    # Compute weighted ensemble probability
-    # precomputed_probs each has shape (n_rows, 2)
-    prob_old = precomputed_probs["old"][:, 1]      # prob of class 1
+    # Use precomputed probabilities for speed and consistency
+    prob_old = precomputed_probs["old"][:, 1]
     prob_medium = precomputed_probs["medium"][:, 1]
     prob_recent = precomputed_probs["recent"][:, 1]
 
+    # Compute weighted ensemble probability
     ensemble_prob = (
         weights[0] * prob_old +
         weights[1] * prob_medium +
         weights[2] * prob_recent
     )
-    predictions = (ensemble_prob > 0.5).astype(int)
 
     # Get true labels (last column of resolved_df)
     y_true = resolved_df[:, -1].astype(int)
 
     # Compute Brier-based score (1 - MSE)
-    # This is a proper scoring rule that accounts for both accuracy and calibration
     brier_score = 1.0 - np.mean((ensemble_prob - y_true)**2)
     
-    # Feature Parsimony (small penalty for more features to avoid overfitting)
-    parsimony_penalty = 0.01 * (len(active_indices) / len(all_features))
-    
-    # Composite fitness: favor Brier Score with slight parsimony
-    fitness = brier_score - parsimony_penalty
-    return float(fitness)
+    return float(brier_score)
 
 
 def run_pso(
@@ -143,12 +127,10 @@ def run_pso(
             # Update position
             particles[i] = np.clip(particles[i] + velocities[i], 0, 1)
 
-            # Normalize weight genes (with safety check)
+            # Normalize weight genes
             w_sum = np.abs(particles[i][8:11]).sum()
             if w_sum > 1e-10:
                 particles[i][8:11] = np.abs(particles[i][8:11]) / w_sum
-            else:
-                particles[i][8:11] = np.array([1/3, 1/3, 1/3])
 
             # Evaluate
             fit = evaluate_fitness(particles[i], models, resolved_df, all_features, precomputed_probs)
@@ -239,12 +221,10 @@ def run_ga(
             offspring[mutation_mask] += np.random.normal(0, mutation_std, mutation_mask.sum())
             offspring = np.clip(offspring, 0, 1)
 
-            # Repair: normalize weight genes (with safety check)
+            # Repair: normalize weight genes
             w_sum = np.abs(offspring[8:11]).sum()
             if w_sum > 1e-10:
                 offspring[8:11] = np.abs(offspring[8:11]) / w_sum
-            else:
-                offspring[8:11] = np.array([1/3, 1/3, 1/3])
 
             new_population = np.vstack([new_population, offspring])
 
@@ -327,12 +307,10 @@ def run_gwo(
 
             wolves[i] = np.clip(np.mean(X_positions, axis=0), 0, 1)
 
-            # Normalize weight genes (with safety check)
+            # Normalize weight genes
             w_sum = np.abs(wolves[i][8:11]).sum()
             if w_sum > 1e-10:
                 wolves[i][8:11] = np.abs(wolves[i][8:11]) / w_sum
-            else:
-                wolves[i][8:11] = np.array([1/3, 1/3, 1/3])
 
             # Evaluate
             fit = evaluate_fitness(wolves[i], models, resolved_df, all_features, precomputed_probs)
@@ -375,7 +353,9 @@ class MHOCouncil:
         self,
         models: Dict[str, Any],
         resolved_df: Any,
-        all_features: List[str]
+        all_features: List[str],
+        current_features: List[str] = None,
+        current_weights: List[float] = None
     ) -> Dict[str, Any]:
         """
         Run optimization council and return aggregated solution.
@@ -383,8 +363,9 @@ class MHOCouncil:
         Args:
             models: dict with keys 'old', 'medium', 'recent' (model instances)
             resolved_df: DataFrame of resolved rows with truth labels.
-                        Uses last 60 rows if available, else all.
             all_features: list of 8 feature column names
+            current_features: list of currently active feature names
+            current_weights: list of current [w_old, w_medium, w_recent]
 
         Returns:
             Dictionary with keys:
@@ -400,13 +381,10 @@ class MHOCouncil:
         else:
             resolved_array = resolved_df
 
-        # Use last 60 rows for efficiency, or all if fewer available
-        if len(resolved_array) > 60:
-            resolved_array = resolved_array[-60:, :]
-        else:
-            resolved_array = resolved_array
+        # Use all rows provided (03_stream_loop handles windowing)
+        resolved_array = resolved_array
 
-        # Precompute model probabilities for all rows
+        # Precompute model probabilities for all rows (massive speedup)
         precomputed_probs = {}
         for model_key in ["old", "medium", "recent"]:
             model = models[model_key]
@@ -448,8 +426,38 @@ class MHOCouncil:
         w_sum = np.abs(w).sum()
         if w_sum > 1e-10:
             final_solution[8:11] = np.abs(w) / w_sum
-        else:
-            final_solution[8:11] = np.array([1/3, 1/3, 1/3])
+        
+        # Guard: No-Worse-Than-Static
+        # If we have current state, evaluate it and compare
+        update_suppressed = False
+        if current_features is not None and current_weights is not None:
+            # Construct current solution vector
+            current_sol = np.zeros(11)
+            for i, feat in enumerate(all_features):
+                if feat in current_features:
+                    current_sol[i] = 1.0
+            current_sol[8:11] = current_weights
+            
+            # Evaluate fitness of current solution (always uses full features)
+            current_fit = evaluate_fitness(
+                current_sol, models, resolved_array, all_features, precomputed_probs
+            )
+            
+            # Evaluate fitness of optimized solution
+            final_fit = evaluate_fitness(
+                final_solution, models, resolved_array, all_features, precomputed_probs
+            )
+            
+            # Print for debugging
+            print(f"[MHO COUNCIL] Drift Window Fitness - Current: {current_fit:.4f}, Optimized: {final_fit:.4f}")
+            
+            # If optimized is NOT significantly better, suppress update
+            if final_fit <= current_fit + 0.001:
+                print("[MHO COUNCIL] Weight update suppressed: Improvement below threshold.")
+                final_solution = current_sol
+                update_suppressed = True
+
+        # 2. Ensure minimum 3 active features
 
         # 2. Ensure minimum 3 active features
         flags = final_solution[:8]
