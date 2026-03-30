@@ -95,9 +95,9 @@ const Renderers = {
 
             // Update weights
             const weights = [
-                { name: 'Model OLD', value: latest.w_old || 0.333 },
-                { name: 'Model MEDIUM', value: latest.w_medium || 0.333 },
-                { name: 'Model RECENT', value: latest.w_recent || 0.333 }
+                { name: 'XGBoost', value: latest.w_old || 0.333 },
+                { name: 'LightGBM', value: latest.w_medium || 0.333 },
+                { name: 'ExtraTrees', value: latest.w_recent || 0.333 }
             ];
             this._populateWeights(weights);
             
@@ -289,7 +289,8 @@ const Renderers = {
                 label: Utils.formatDate(p.date, 'short'), 
                 avgWeightOld: p.w_old, 
                 avgWeightMedium: p.w_medium, 
-                avgWeightRecent: p.w_recent 
+                avgWeightRecent: p.w_recent,
+                avgWeightLogistic: p.w_logistic 
             }))
             : Utils.groupDataByMonthYear(predictions);
 
@@ -301,7 +302,7 @@ const Renderers = {
                 labels: labels,
                 datasets: [
                     {
-                        label: 'Old',
+                        label: 'XGBoost',
                         data: grouped.map(g => (g.avgWeightOld || 0) * 100),
                         borderColor: '#3b82f6',
                         backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -311,7 +312,7 @@ const Renderers = {
                         pointRadius: isSmall ? 3 : 0
                     },
                     {
-                        label: 'Medium',
+                        label: 'LightGBM',
                         data: grouped.map(g => (g.avgWeightMedium || 0) * 100),
                         borderColor: '#f59e0b',
                         backgroundColor: 'rgba(245, 158, 11, 0.1)',
@@ -321,10 +322,20 @@ const Renderers = {
                         pointRadius: isSmall ? 3 : 0
                     },
                     {
-                        label: 'Recent',
+                        label: 'ExtraTrees',
                         data: grouped.map(g => (g.avgWeightRecent || 0) * 100),
                         borderColor: '#10b981',
                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: isSmall ? 3 : 0
+                    },
+                    {
+                        label: 'Linear Regression',
+                        data: grouped.map(g => (g.avgWeightLogistic || 0) * 100),
+                        borderColor: '#8b5cf6',
+                        backgroundColor: 'rgba(139, 92, 246, 0.1)',
                         borderWidth: 2,
                         fill: true,
                         tension: 0.3,
@@ -652,14 +663,18 @@ const Renderers = {
             return;
         }
 
-        tbody.innerHTML = recent.map(d => `
-            <tr>
-                <td>${Utils.formatDate(d.date, 'short')}</td>
-                <td>${d.row_index}</td>
-                <td style="font-size: 0.75rem;">PSO:${d.fit_pso?.toFixed(2)} GA:${d.fit_ga?.toFixed(2)} GWO:${d.fit_gwo?.toFixed(2)}</td>
-                <td>${((d.w_recent_after - (d.w_recent_before || 0)) * 100).toFixed(1)}%</td>
-            </tr>
-        `).join('');
+        tbody.innerHTML = recent.map(d => {
+            // Calculate Logistic model shift as a measure of recent impact
+            const shift = ((d.w_logistic_after || 0) - (d.w_logistic_before || 0)) * 100;
+            return `
+                <tr>
+                    <td>${Utils.formatDate(d.date, 'short')}</td>
+                    <td>${d.row_index}</td>
+                    <td style="font-size: 0.75rem;">PSO:${d.fit_pso?.toFixed(2)} GA:${d.fit_ga?.toFixed(2)} GWO:${d.fit_gwo?.toFixed(2)}</td>
+                    <td>${(shift >= 0 ? '+' : '')}${shift.toFixed(1)}%</td>
+                </tr>
+            `;
+        }).join('');
     },
 
     _populateModelRegistry(models) {
@@ -758,12 +773,14 @@ const Renderers = {
                     backgroundColor: [
                         'rgba(59, 130, 246, 0.6)', 
                         'rgba(245, 158, 11, 0.6)', 
-                        'rgba(16, 185, 129, 0.6)'
+                        'rgba(16, 185, 129, 0.6)',
+                        'rgba(139, 92, 246, 0.6)'
                     ],
                     borderColor: [
                         '#3b82f6', 
                         '#f59e0b', 
-                        '#10b981'
+                        '#10b981',
+                        '#8b5cf6'
                     ],
                     borderWidth: 1
                 }]

@@ -107,6 +107,8 @@ async function loadData() {
             average_inference_time_ms: 12.4
         };
         
+        dashboardState.summary = summary;
+        
         // Transform drift events
         dashboardState.driftData = driftEvents.map(event => ({
             timestamp: event.date ? new Date(event.date).toISOString() : new Date().toISOString(),
@@ -328,18 +330,37 @@ function createCouncilContributionChart() {
     const ctx = document.getElementById('councilChart')?.getContext('2d');
     if (!ctx) return;
     
+    const labels = [];
+    const weights = [];
+    const colors = [
+        colorSchemes.accent.green,
+        colorSchemes.accent.blue,
+        colorSchemes.accent.amber,
+        colorSchemes.accent.red,
+        '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
+    ];
+
+    if (dashboardState.summary) {
+        Object.keys(dashboardState.summary).forEach(key => {
+            if (key.startsWith('w_') && !key.endsWith('_before') && !key.endsWith('_after')) {
+                labels.push(key.replace('w_', '').toUpperCase());
+                weights.push(dashboardState.summary[key]);
+            }
+        });
+    }
+
+    if (weights.length === 0) {
+        labels.push('XGBoost', 'LightGBM', 'ExtraTrees');
+        weights.push(0.33, 0.33, 0.34);
+    }
+
     const chart = new Chart(ctx, {
         type: 'doughnut',
         data: {
-            labels: ['LightGBM', 'XGBoost', 'Neural Network', 'Random Forest'],
+            labels: labels,
             datasets: [{
-                data: [0.35, 0.28, 0.22, 0.15],
-                backgroundColor: [
-                    colorSchemes.accent.green,
-                    colorSchemes.accent.blue,
-                    colorSchemes.accent.amber,
-                    colorSchemes.accent.red
-                ],
+                data: weights,
+                backgroundColor: colors.slice(0, weights.length),
                 borderColor: '#0a0e27',
                 borderWidth: 2
             }]
@@ -580,17 +601,17 @@ function createModelComparisonChart() {
             labels: ['Brier Score', 'Precision', 'Recall', 'F1-Score', 'AUC'],
             datasets: [
                 {
-                    label: 'LightGBM',
-                    data: [0.92, 0.88, 0.87, 0.875, 0.95],
-                    backgroundColor: colorSchemes.accent.green
-                },
-                {
                     label: 'XGBoost',
-                    data: [0.89, 0.85, 0.84, 0.845, 0.92],
+                    data: [0.92, 0.88, 0.87, 0.875, 0.95],
                     backgroundColor: colorSchemes.accent.blue
                 },
                 {
-                    label: 'Neural Net',
+                    label: 'LightGBM',
+                    data: [0.89, 0.85, 0.84, 0.845, 0.92],
+                    backgroundColor: colorSchemes.accent.green
+                },
+                {
+                    label: 'ExtraTrees',
                     data: [0.87, 0.83, 0.82, 0.825, 0.90],
                     backgroundColor: colorSchemes.accent.amber
                 }
@@ -672,13 +693,37 @@ function createCouncilWeightsChart() {
     
     const container = canvas.parentElement;
     
-    // Create bars for each model
-    const models = [
-        { name: 'LightGBM', weight: 0.35, color: colorSchemes.accent.green },
-        { name: 'XGBoost', weight: 0.28, color: colorSchemes.accent.blue },
-        { name: 'Neural Net', weight: 0.22, color: colorSchemes.accent.amber },
-        { name: 'Random Forest', weight: 0.15, color: colorSchemes.accent.red }
+    // Create bars for each model dynamically
+    const models = [];
+    const colors = [
+        colorSchemes.accent.blue,
+        colorSchemes.accent.green,
+        colorSchemes.accent.amber,
+        colorSchemes.accent.red,
+        '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
     ];
+
+    if (dashboardState.summary) {
+        let i = 0;
+        Object.keys(dashboardState.summary).forEach(key => {
+            if (key.startsWith('w_') && !key.endsWith('_before') && !key.endsWith('_after')) {
+                models.push({
+                    name: key.replace('w_', '').toUpperCase(),
+                    weight: dashboardState.summary[key],
+                    color: colors[i % colors.length]
+                });
+                i++;
+            }
+        });
+    }
+
+    if (models.length === 0) {
+        models.push(
+            { name: 'XGBoost', weight: 0.33, color: colorSchemes.accent.blue },
+            { name: 'LightGBM', weight: 0.33, color: colorSchemes.accent.green },
+            { name: 'ExtraTrees', weight: 0.34, color: colorSchemes.accent.amber }
+        );
+    }
     
     let html = '<div style="display: grid; gap: 16px;">';
     
