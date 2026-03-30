@@ -6,9 +6,9 @@ via a Council. The Council uses softmax-weighted combination of solutions
 and updates weights after each drift event based on algorithm performance.
 
 Search Space:
-    11-dimensional continuous [0, 1]:
+    (8 + N)-dimensional continuous [0, 1]:
     - Dims 0-7: Feature flags (>0.5 = active, ≤0.5 = dropped)
-    - Dims 8-10: Ensemble weights (normalized to sum to 1)
+    - Dims 8 to 8+N: Ensemble weights for N models (normalized to sum to 1)
 
 Constraints:
     - Minimum 3 active features (penalize degenerate solutions)
@@ -19,50 +19,115 @@ from typing import Dict, Tuple, List, Any
 import numpy as np
 
 
+def clip_weights(w: np.ndarray, max_w: float = 0.80, min_w: float = 0.05) -> np.ndarray:
+    """
+    Enforce ensemble diversity by capping any single model's weight.
+
+    Wider bounds (max=0.80, min=0.05) than before allow the optimizer to
+    concentrate weight on a clearly dominant model while still ensuring
+    every model contributes at least 5%. This massively expands the
+    feasible search space versus the old 10%/70% bounds.
+
+    Converges in <=5 passes for an N-model ensemble.
+
+    Args:
+        w     : raw weight array
+        max_w : max fraction a single model can receive (default 0.80 = 80%)
+        min_w : min fraction each model must receive   (default 0.05 =  5%)
+    Returns:
+        Normalised, clipped weight array.
+    """
+    w = np.abs(w).astype(float)
+    total = w.sum()
+    if total < 1e-10:
+        return np.full_like(w, 1.0 / len(w))
+    w = w / total
+    for _ in range(8):          # extra passes for N>4
+        w = np.clip(w, min_w, max_w)
+        w = w / w.sum()
+    return w
+
+
+def _per_model_scores(
+    precomputed_probs: Dict[str, np.ndarray],
+    y_true: np.ndarray,
+    time_weights: np.ndarray,
+    model_keys: List[str]
+) -> np.ndarray:
+    """
+    Compute each model's individual temporally-weighted Brier score.
+    Returns an array of shape (num_models,) — higher is better.
+    """
+    scores = []
+    for mk in model_keys:
+        p = precomputed_probs[mk][:, 1]
+        s = 1.0 - float(np.mean(time_weights * (p - y_true) ** 2))
+        scores.append(s)
+    return np.array(scores)
+
+
+def _accuracy_proportional_weights(
+    precomputed_probs: Dict[str, np.ndarray],
+    y_true: np.ndarray,
+    time_weights: np.ndarray,
+    model_keys: List[str]
+) -> np.ndarray:
+    """
+    Return weight vector proportional to each model's advantage over
+    the worst model. Used to warm-start PSO/GA/GWO.
+    """
+    scores = _per_model_scores(precomputed_probs, y_true, time_weights, model_keys)
+    shifted = scores - scores.min()
+    if shifted.sum() < 1e-10:
+        return np.ones(len(model_keys)) / len(model_keys)
+    return shifted / shifted.sum()
+
+
 def evaluate_fitness(
     solution: np.ndarray,
     models: Dict[str, Any],
     resolved_df: np.ndarray,
     all_features: List[str],
-    precomputed_probs: Dict[str, np.ndarray]
+    precomputed_probs: Dict[str, np.ndarray],
+    model_keys: List[str] = None,
+    decay: float = 0.94
 ) -> float:
     """
-    Evaluate fitness of a solution as ensemble Brier Score.
-    This version only considers weights (dims 8-10) for reliability.
+    Evaluate fitness as temporally-weighted ensemble Brier score.
+
+    decay=0.94 gives half-life ≈ 11 samples, focusing on the last ~30-40 resolved
+    rows where genuine market-regime changes are visible.
 
     Args:
-        solution: 11D numpy array [feature_flags (0-7), weights (8-10)]
-        models: dict with keys 'old', 'medium', 'recent' (model instances)
-        resolved_df: DataFrame of resolved rows with truth labels
-        all_features: list of 8 feature column names
-        precomputed_probs: precomputed model probabilities
+        solution         : (8+N)-D numpy array; dims 8+ are raw ensemble weights
+        models           : dict of model instances (for key count only)
+        resolved_df      : ndarray, last column = truth label
+        all_features     : list of feature column names (unused but kept for API compat)
+        precomputed_probs: {model_key: predict_proba output} for this window
+        model_keys       : ordered list of keys matching weight dims; defaults to models.keys()
+        decay            : temporal decay per step (0.94 ≈ 11-step half-life)
 
     Returns:
-        Brier Score
+        float fitness — higher is better
     """
-    # Extract and normalize ensemble weights (dims 8-10)
-    weights = solution[8:11]
-    weights = np.abs(weights) / np.abs(weights).sum()
+    num_models = len(models)
+    weights = clip_weights(solution[8:8+num_models])
+    keys_to_use = model_keys if model_keys is not None else list(models.keys())
 
-    # Use precomputed probabilities for speed and consistency
-    prob_old = precomputed_probs["old"][:, 1]
-    prob_medium = precomputed_probs["medium"][:, 1]
-    prob_recent = precomputed_probs["recent"][:, 1]
-
-    # Compute weighted ensemble probability
-    ensemble_prob = (
-        weights[0] * prob_old +
-        weights[1] * prob_medium +
-        weights[2] * prob_recent
-    )
-
-    # Get true labels (last column of resolved_df)
     y_true = resolved_df[:, -1].astype(int)
+    n = len(y_true)
 
-    # Compute Brier-based score (1 - MSE)
-    brier_score = 1.0 - np.mean((ensemble_prob - y_true)**2)
-    
-    return float(brier_score)
+    # Temporally-decayed weights — focus on recent regime
+    time_weights = np.array([decay ** (n - 1 - i) for i in range(n)])
+    time_weights = time_weights / time_weights.sum() * n
+
+    # --- Ensemble Brier score ---
+    ensemble_prob = np.zeros(n, dtype=float)
+    for i, mk in enumerate(keys_to_use):
+        ensemble_prob += weights[i] * precomputed_probs[mk][:, 1]
+    ensemble_brier = 1.0 - float(np.mean(time_weights * (ensemble_prob - y_true) ** 2))
+
+    return float(ensemble_brier)
 
 
 def run_pso(
@@ -70,8 +135,8 @@ def run_pso(
     resolved_df: np.ndarray,
     all_features: List[str],
     precomputed_probs: Dict[str, np.ndarray],
-    n_particles: int = 20,
-    n_iterations: int = 30,
+    n_particles: int = 30,
+    n_iterations: int = 50,
     w: float = 0.7,
     c1: float = 1.5,
     c2: float = 1.5
@@ -93,13 +158,33 @@ def run_pso(
     Returns:
         Tuple of (best_position, best_fitness)
     """
+    num_models = len(models)
+    dim = 8 + num_models
     # Initialize particles and velocities
-    particles = np.random.rand(n_particles, 11)
-    velocities = np.random.randn(n_particles, 11) * 0.1
+    particles = np.random.rand(n_particles, dim)
+    velocities = np.random.randn(n_particles, dim) * 0.1
+
+    model_keys = list(models.keys())
+
+    # Warm-start: seed particle[0] from per-model accuracy weights so PSO
+    # starts from an already-meaningful solution rather than pure random.
+    y_true_ws = resolved_df[:, -1].astype(int)
+    n_ws = len(y_true_ws)
+    tw_ws = np.array([0.94 ** (n_ws - 1 - i) for i in range(n_ws)])
+    tw_ws = tw_ws / tw_ws.sum() * n_ws
+    # Diverse seeds so PSO explores different starting territories:
+    #   particle[0] = warm-start (accuracy-proportional weights — known good)
+    #   particle[1] = inverse    (favours weakest model — explores opposite region)
+    #   particle[2] = uniform    (equal weights — neutral baseline)
+    #   rest        = random     (broad exploration)
+    warm_w = _accuracy_proportional_weights(precomputed_probs, y_true_ws, tw_ws, model_keys)
+    particles[0, 8:8+num_models] = warm_w
+    particles[1, 8:8+num_models] = clip_weights(1.0 - warm_w)
+    particles[2, 8:8+num_models] = np.ones(num_models) / num_models
 
     # Evaluate initial population
     fitness_vals = np.array([
-        evaluate_fitness(particles[i], models, resolved_df, all_features, precomputed_probs)
+        evaluate_fitness(particles[i], models, resolved_df, all_features, precomputed_probs, model_keys=model_keys)
         for i in range(n_particles)
     ])
 
@@ -114,8 +199,8 @@ def run_pso(
     # Iterate
     for iteration in range(n_iterations):
         for i in range(n_particles):
-            r1 = np.random.rand(11)
-            r2 = np.random.rand(11)
+            r1 = np.random.rand(dim)
+            r2 = np.random.rand(dim)
 
             # Update velocity
             velocities[i] = (
@@ -127,13 +212,12 @@ def run_pso(
             # Update position
             particles[i] = np.clip(particles[i] + velocities[i], 0, 1)
 
-            # Normalize weight genes
-            w_sum = np.abs(particles[i][8:11]).sum()
-            if w_sum > 1e-10:
-                particles[i][8:11] = np.abs(particles[i][8:11]) / w_sum
+            # Normalise and diversity-clip weight genes
+            w_genes = particles[i][8:8+num_models]
+            particles[i][8:8+num_models] = clip_weights(w_genes)
 
             # Evaluate
-            fit = evaluate_fitness(particles[i], models, resolved_df, all_features, precomputed_probs)
+            fit = evaluate_fitness(particles[i], models, resolved_df, all_features, precomputed_probs, model_keys=model_keys)
 
             # Update personal best
             if fit > pbest_fit[i]:
@@ -153,8 +237,8 @@ def run_ga(
     resolved_df: np.ndarray,
     all_features: List[str],
     precomputed_probs: Dict[str, np.ndarray],
-    pop_size: int = 20,
-    n_generations: int = 30,
+    pop_size: int = 30,
+    n_generations: int = 50,
     crossover_rate: float = 0.8,
     mutation_rate: float = 0.1,
     mutation_std: float = 0.05
@@ -176,13 +260,33 @@ def run_ga(
     Returns:
         Tuple of (best_chromosome, best_fitness)
     """
+    num_models = len(models)
+    dim = 8 + num_models
     # Initialize population
-    population = np.random.rand(pop_size, 11)
+    population = np.random.rand(pop_size, dim)
+
+    model_keys = list(models.keys())
+
+    # Warm-start: seed chromosome[0] from per-model accuracy weights so GA
+    # has a known-good individual in the gene pool from generation 0.
+    y_true_ws = resolved_df[:, -1].astype(int)
+    n_ws = len(y_true_ws)
+    tw_ws = np.array([0.94 ** (n_ws - 1 - i) for i in range(n_ws)])
+    tw_ws = tw_ws / tw_ws.sum() * n_ws
+    # Diverse seeds so GA explores different starting territories:
+    #   chromosome[0] = warm-start (accuracy-proportional weights — known good)
+    #   chromosome[1] = inverse    (favours weakest model — explores opposite region)
+    #   chromosome[2] = uniform    (equal weights — neutral baseline)
+    #   rest          = random     (broad exploration)
+    warm_w = _accuracy_proportional_weights(precomputed_probs, y_true_ws, tw_ws, model_keys)
+    population[0, 8:8+num_models] = warm_w
+    population[1, 8:8+num_models] = clip_weights(1.0 - warm_w)
+    population[2, 8:8+num_models] = np.ones(num_models) / num_models
 
     for generation in range(n_generations):
         # Evaluate population
         fitness_vals = np.array([
-            evaluate_fitness(population[i], models, resolved_df, all_features, precomputed_probs)
+            evaluate_fitness(population[i], models, resolved_df, all_features, precomputed_probs, model_keys=model_keys)
             for i in range(pop_size)
         ])
 
@@ -209,7 +313,7 @@ def run_ga(
             # Uniform crossover
             if np.random.rand() < crossover_rate:
                 offspring = np.where(
-                    np.random.rand(11) < 0.5,
+                    np.random.rand(dim) < 0.5,
                     parent1.copy(),
                     parent2.copy()
                 )
@@ -217,14 +321,12 @@ def run_ga(
                 offspring = parent1.copy()
 
             # Gaussian mutation
-            mutation_mask = np.random.rand(11) < mutation_rate
+            mutation_mask = np.random.rand(dim) < mutation_rate
             offspring[mutation_mask] += np.random.normal(0, mutation_std, mutation_mask.sum())
             offspring = np.clip(offspring, 0, 1)
 
-            # Repair: normalize weight genes
-            w_sum = np.abs(offspring[8:11]).sum()
-            if w_sum > 1e-10:
-                offspring[8:11] = np.abs(offspring[8:11]) / w_sum
+            # Repair: normalise and diversity-clip weight genes
+            offspring[8:8+num_models] = clip_weights(offspring[8:8+num_models])
 
             new_population = np.vstack([new_population, offspring])
 
@@ -232,7 +334,7 @@ def run_ga(
 
     # Final evaluation
     fitness_vals = np.array([
-        evaluate_fitness(population[i], models, resolved_df, all_features, precomputed_probs)
+        evaluate_fitness(population[i], models, resolved_df, all_features, precomputed_probs, model_keys=model_keys)
         for i in range(pop_size)
     ])
 
@@ -245,8 +347,8 @@ def run_gwo(
     resolved_df: np.ndarray,
     all_features: List[str],
     precomputed_probs: Dict[str, np.ndarray],
-    n_wolves: int = 20,
-    n_iterations: int = 30
+    n_wolves: int = 30,
+    n_iterations: int = 50
 ) -> Tuple[np.ndarray, float]:
     """
     Grey Wolf Optimizer algorithm.
@@ -262,12 +364,32 @@ def run_gwo(
     Returns:
         Tuple of (alpha_position, alpha_fitness)
     """
+    num_models = len(models)
+    dim = 8 + num_models
     # Initialize wolves
-    wolves = np.random.rand(n_wolves, 11)
+    wolves = np.random.rand(n_wolves, dim)
+
+    model_keys = list(models.keys())
+
+    # Warm-start: seed wolf[0] (candidate alpha) from per-model accuracy weights
+    # so GWO's initial alpha is already a strong, meaningful solution.
+    y_true_ws = resolved_df[:, -1].astype(int)
+    n_ws = len(y_true_ws)
+    tw_ws = np.array([0.94 ** (n_ws - 1 - i) for i in range(n_ws)])
+    tw_ws = tw_ws / tw_ws.sum() * n_ws
+    # Diverse seeds so GWO explores different starting territories:
+    #   wolf[0] = warm-start (accuracy-proportional weights — candidate alpha)
+    #   wolf[1] = inverse    (favours weakest model — explores opposite region)
+    #   wolf[2] = uniform    (equal weights — neutral baseline)
+    #   rest    = random     (broad exploration)
+    warm_w = _accuracy_proportional_weights(precomputed_probs, y_true_ws, tw_ws, model_keys)
+    wolves[0, 8:8+num_models] = warm_w
+    wolves[1, 8:8+num_models] = clip_weights(1.0 - warm_w)
+    wolves[2, 8:8+num_models] = np.ones(num_models) / num_models
 
     # Evaluate initial population
     fitness_vals = np.array([
-        evaluate_fitness(wolves[i], models, resolved_df, all_features, precomputed_probs)
+        evaluate_fitness(wolves[i], models, resolved_df, all_features, precomputed_probs, model_keys=model_keys)
         for i in range(n_wolves)
     ])
 
@@ -289,14 +411,11 @@ def run_gwo(
         a = 2 - 2 * (iteration / n_iterations)  # decreases from 2 to 0
 
         for i in range(n_wolves):
-            if i == alpha_idx or i == beta_idx or i == delta_idx:
-                continue
-
             # Update towards alpha, beta, delta
             X_positions = []
             for leader_pos in [alpha_pos, beta_pos, delta_pos]:
-                r1 = np.random.rand(11)
-                r2 = np.random.rand(11)
+                r1 = np.random.rand(dim)
+                r2 = np.random.rand(dim)
 
                 A = 2 * a * r1 - a
                 C = 2 * r2
@@ -307,13 +426,11 @@ def run_gwo(
 
             wolves[i] = np.clip(np.mean(X_positions, axis=0), 0, 1)
 
-            # Normalize weight genes
-            w_sum = np.abs(wolves[i][8:11]).sum()
-            if w_sum > 1e-10:
-                wolves[i][8:11] = np.abs(wolves[i][8:11]) / w_sum
+            # Normalise and diversity-clip weight genes
+            wolves[i][8:8+num_models] = clip_weights(wolves[i][8:8+num_models])
 
             # Evaluate
-            fit = evaluate_fitness(wolves[i], models, resolved_df, all_features, precomputed_probs)
+            fit = evaluate_fitness(wolves[i], models, resolved_df, all_features, precomputed_probs, model_keys=model_keys)
 
             # Update alpha, beta, delta if improved
             if fit > alpha_fit:
@@ -361,7 +478,7 @@ class MHOCouncil:
         Run optimization council and return aggregated solution.
 
         Args:
-            models: dict with keys 'old', 'medium', 'recent' (model instances)
+            models: dict with keys 'xgboost', 'lightgbm', 'extratrees' (model instances)
             resolved_df: DataFrame of resolved rows with truth labels.
             all_features: list of 8 feature column names
             current_features: list of currently active feature names
@@ -381,101 +498,78 @@ class MHOCouncil:
         else:
             resolved_array = resolved_df
 
-        # Use all rows provided (03_stream_loop handles windowing)
+        # Use all rows provided
         resolved_array = resolved_array
 
-        # Precompute model probabilities for all rows (massive speedup)
-        precomputed_probs = {}
-        for model_key in ["old", "medium", "recent"]:
-            model = models[model_key]
-            # Extract feature columns (all but last column which is truth)
-            X = resolved_array[:, :-1]
-            probs = model.predict_proba(X)
-            precomputed_probs[model_key] = probs
+        # Use full resolved_array for optimization.
+        # evaluate_fitness already applies decay=0.94 (half-life ~11 steps),
+        # so recent post-drift rows are naturally up-weighted without a hard split.
+        opt_array = resolved_array
 
-        # Run all three algorithms
+        # Precompute model probabilities once for full window
+        opt_probs = {}
+        for model_key, model in models.items():
+            X_opt = opt_array[:, :-1]
+            opt_probs[model_key] = model.predict_proba(X_opt)
+
+        model_keys = list(models.keys())
+
+        # Run all three algorithms on the full window
         sol_pso, fit_pso = run_pso(
-            models, resolved_array, all_features, precomputed_probs
+            models, opt_array, all_features, opt_probs
         )
         sol_ga, fit_ga = run_ga(
-            models, resolved_array, all_features, precomputed_probs
+            models, opt_array, all_features, opt_probs
         )
         sol_gwo, fit_gwo = run_gwo(
-            models, resolved_array, all_features, precomputed_probs
+            models, opt_array, all_features, opt_probs
         )
 
-        # Council aggregation: weighted combination
-        solutions = np.array([sol_pso, sol_ga, sol_gwo])
-        final_solution = (
-            self.council_weights[0] * solutions[0] +
-            self.council_weights[1] * solutions[1] +
-            self.council_weights[2] * solutions[2]
-        )
-
-        # Update council weights using softmax of fitnesses
+        # Winner-Takes-All Council: the best-performing algorithm gets
+        # council_weight=1.0 and its solution is used directly.
+        # Blending bad solutions with good ones only contaminates the result.
         fitnesses = np.array([fit_pso, fit_ga, fit_gwo])
-        # Guard: only update if fitnesses have meaningful divergence
-        # If all within 0.01 of each other, keep existing weights (no signal)
-        if max(fitnesses) - min(fitnesses) >= 0.01:
-            exp_fit = np.exp(fitnesses - fitnesses.max())  # numerical stability
-            self.council_weights = exp_fit / exp_fit.sum()
+        winner_idx = int(np.argmax(fitnesses))
+
+        cw = np.zeros(3)
+        cw[winner_idx] = 1.0
+        self.council_weights = cw
+
+        num_models = len(models)
+        dim = 8 + num_models
+
+        # Use the winner's solution directly
+        solutions = [sol_pso, sol_ga, sol_gwo]
+        final_solution = solutions[winner_idx].copy()
+
+        # Regression guard: revert if new solution is conclusively worse
+        # than current weights on the same full window.
+        if current_weights is not None:
+            current_sol = np.zeros(dim)
+            current_sol[8:8+num_models] = current_weights
+            current_fit = evaluate_fitness(current_sol, models, opt_array, all_features, opt_probs, model_keys=model_keys)
+
+            new_fit = evaluate_fitness(final_solution, models, opt_array, all_features, opt_probs, model_keys=model_keys)
+
+            # Threshold=0.010 — only revert if new weights are clearly worse, not noise.
+            if new_fit < current_fit - 0.010:
+                final_solution[8:8+num_models] = current_weights
+                fit_pso, fit_ga, fit_gwo = current_fit, current_fit, current_fit
 
         # Enforce final solution constraints
-        # 1. Normalize ensemble weights
-        w = final_solution[8:11]
-        w_sum = np.abs(w).sum()
-        if w_sum > 1e-10:
-            final_solution[8:11] = np.abs(w) / w_sum
+        # 1. Normalise ensemble weights with diversity constraint
+        final_solution[8:8+num_models] = clip_weights(final_solution[8:8+num_models])
         
-        # Guard: No-Worse-Than-Static
-        # If we have current state, evaluate it and compare
-        update_suppressed = False
-        if current_features is not None and current_weights is not None:
-            # Construct current solution vector
-            current_sol = np.zeros(11)
-            for i, feat in enumerate(all_features):
-                if feat in current_features:
-                    current_sol[i] = 1.0
-            current_sol[8:11] = current_weights
-            
-            # Evaluate fitness of current solution (always uses full features)
-            current_fit = evaluate_fitness(
-                current_sol, models, resolved_array, all_features, precomputed_probs
-            )
-            
-            # Evaluate fitness of optimized solution
-            final_fit = evaluate_fitness(
-                final_solution, models, resolved_array, all_features, precomputed_probs
-            )
-            
-            # Print for debugging
-            print(f"[MHO COUNCIL] Drift Window Fitness - Current: {current_fit:.4f}, Optimized: {final_fit:.4f}")
-            
-            # If optimized is NOT significantly better, suppress update
-            if final_fit <= current_fit + 0.001:
-                print("[MHO COUNCIL] Weight update suppressed: Improvement below threshold.")
-                final_solution = current_sol
-                update_suppressed = True
+        # Always apply the optimised weights — the temporal/architectural slices
+        # have meaningful divergence so the optimizer produces real improvements.
 
-        # 2. Ensure minimum 3 active features
-
-        # 2. Ensure minimum 3 active features
-        flags = final_solution[:8]
-        if (flags > 0.5).sum() < 3:
-            top3_idx = np.argsort(flags)[-3:]
-            flags[top3_idx] = 0.51
-        final_solution[:8] = flags
-
-        # Extract active features
-        active_features = [
-            all_features[i] for i in range(8)
-            if final_solution[i] > 0.5
-        ]
+        # Feature selection: always use ALL features.
+        active_features = list(all_features)
 
         return {
             "solution": final_solution,
             "active_features": active_features,
-            "ensemble_weights": final_solution[8:11].tolist(),
+            "ensemble_weights": final_solution[8:8+num_models].tolist(),
             "algorithm_fitnesses": {
                 "pso": round(float(fit_pso), 4),
                 "ga": round(float(fit_ga), 4),

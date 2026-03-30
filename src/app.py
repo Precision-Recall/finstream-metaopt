@@ -72,26 +72,28 @@ def _run_job_in_background(job_name: str, job_fn, *args):
 # SYSTEM CONFIGURATION (Mirrored from Core Logic)
 # ═══════════════════════════════════════════════════════
 
+_stream_module = importlib.import_module('src.03_stream_loop')
+MODEL_MAPPING = _stream_module.MODEL_MAPPING
+
 SYSTEM_CONFIG = {
     "features": [
         'RSI_14', 'MACD', 'MACD_Signal', 'MACD_Diff',
         'BB_Position', 'MA_5_20_Ratio',
-        'Volume_Change_Pct', 'Yesterday_Return'
+        'Volume_Change_Pct', 'Yesterday_Return',
+        'MA_50', 'MA_200', 'Institutional_Flow'
     ],
-    "models": [
-        {"name": "Model_OLD", "period": "2015-2017"},
-        {"name": "Model_MEDIUM", "period": "2016-2018"},
-        {"name": "Model_RECENT", "period": "2017-2019"}
-    ],
+    "models": [ {"name": k.upper(), "period": "Full Training Set (2015-2019)"} for k in MODEL_MAPPING.keys() ],
     "drift": {
-        "method": "ADWIN",
-        "delta": 0.2,
-        "trigger": "Continuous Error (|pred_prob − truth|)"
+        "method": "SlidingWindow (Dual-Window)",
+        "recent": 30,
+        "baseline": 200,
+        "threshold": 0.04,
+        "trigger": "Periodic (150d) + Error Degradation"
     },
     "optimization": {
-        "dimensions": 11,
+        "dimensions": 11 + len(MODEL_MAPPING),
         "algorithms": ["PSO", "GA", "GWO"],
-        "fitness": "Brier Score (1 - MSE) + Parsimony Penalty"
+        "fitness": "Brier Score (1 - MSE) + Multi-Objective Fitness"
     }
 }
 

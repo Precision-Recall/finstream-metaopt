@@ -37,6 +37,7 @@ from src.firebase_client import FirebaseClient
 _stream_module = importlib.import_module('src.03_stream_loop')
 load_models = _stream_module.load_models
 ensemble_predict = _stream_module.ensemble_predict
+MODEL_MAPPING = _stream_module.MODEL_MAPPING
 
 _mho_module = importlib.import_module('src.05_mho_council')
 MHOCouncil = _mho_module.MHOCouncil
@@ -63,6 +64,8 @@ PREDICTION_HORIZON = int(os.getenv('PREDICTION_HORIZON', 5))
 ADWIN_DELTA = float(os.getenv('ADWIN_DELTA', 1.0))
 MODEL_DIR = os.getenv('MODEL_DIR', 'models')
 DATA_DIR = os.getenv('DATA_DIR', 'data/processed')
+
+
 
 ALL_FEATURES = [
     'RSI_14', 'MACD', 'MACD_Signal', 'MACD_Diff',
@@ -97,7 +100,7 @@ def initialize_system():
     # Load models
     try:
         models = load_models(MODEL_DIR)
-        logger.info(f"✓ Models loaded: {list(models.keys())}")
+        logger.info(f"✓ Models loaded: {list(models.keys())} (Diverse Ensemble)")
     except Exception as e:
         logger.error(f"Failed to load models: {e}")
         sys.exit(1)
@@ -130,20 +133,19 @@ def initialize_system():
             active_features = state.get('active_features', ALL_FEATURES.copy())
             w_dict = state.get('ensemble_weights', {})
             ensemble_weights = [
-                w_dict.get('old', 1/3),
-                w_dict.get('medium', 1/3),
-                w_dict.get('recent', 1/3)
+                w_dict.get(field_name, 1.0/len(MODEL_MAPPING))
+                for field_name in MODEL_MAPPING.values()
             ]
             logger.info(f"✓ State restored from Firebase")
             logger.info(f"  Active features: {active_features}")
             logger.info(f"  Ensemble weights: {ensemble_weights}")
         else:
             active_features = ALL_FEATURES.copy()
-            ensemble_weights = [1/3, 1/3, 1/3]
+            ensemble_weights = [1.0/len(MODEL_MAPPING)] * len(MODEL_MAPPING)
             logger.info("✓ Initialized with default state (first run)")
     else:
         active_features = ALL_FEATURES.copy()
-        ensemble_weights = [1/3, 1/3, 1/3]
+        ensemble_weights = [1.0/len(MODEL_MAPPING)] * len(MODEL_MAPPING)
         logger.info("✓ Initialized with default state (Firebase unavailable)")
     
     _system_initialized = True
@@ -293,9 +295,6 @@ def daily_predict():
             'prediction_label': pred_label,
             'ensemble_probability': round(float(prob), 6),
             'close_at_prediction': round(float(hist['Close'].iloc[-1]), 4),
-            'w_old': round(float(ensemble_weights[0]), 4),
-            'w_medium': round(float(ensemble_weights[1]), 4),
-            'w_recent': round(float(ensemble_weights[2]), 4),
             'active_features': active_features,
             'active_feature_count': len(active_features),
             'resolved': False,
@@ -303,6 +302,8 @@ def daily_predict():
             'error': None,
             'created_at': datetime.now(IST).isoformat()
         }
+        for i, field_name in enumerate(MODEL_MAPPING.values()):
+            prediction_dict[f'w_{field_name}'] = round(float(ensemble_weights[i]), 4)
         
         save_success = firebase_client.save_prediction(prediction_dict)
         if not save_success:
@@ -496,12 +497,6 @@ def daily_evaluate():
                 drift_dict = {
                     'date': target_date_str,
                     'row_index': 0,
-                    'w_old_before': round(float(old_ensemble_weights[0]), 4),
-                    'w_medium_before': round(float(old_ensemble_weights[1]), 4),
-                    'w_recent_before': round(float(old_ensemble_weights[2]), 4),
-                    'w_old_after': round(float(ensemble_weights[0]), 4),
-                    'w_medium_after': round(float(ensemble_weights[1]), 4),
-                    'w_recent_after': round(float(ensemble_weights[2]), 4),
                     'active_features_before': ','.join(old_active_features),
                     'active_features_after': ','.join(active_features),
                     'fit_pso': result['algorithm_fitnesses']['pso'],
@@ -512,6 +507,9 @@ def daily_evaluate():
                     'cw_gwo': result['council_weights']['gwo'],
                     'detected_at': datetime.now(IST).isoformat()
                 }
+                for i, field_name in enumerate(MODEL_MAPPING.values()):
+                    drift_dict[f'w_{field_name}_before'] = round(float(old_ensemble_weights[i]), 4)
+                    drift_dict[f'w_{field_name}_after'] = round(float(ensemble_weights[i]), 4)
                 
                 if not firebase_client.save_drift_event(drift_dict):
                     logger.error("Failed to save drift event to Firebase")
@@ -522,9 +520,8 @@ def daily_evaluate():
                 state_update = {
                     'active_features': active_features,
                     'ensemble_weights': {
-                        'old': ensemble_weights[0],
-                        'medium': ensemble_weights[1],
-                        'recent': ensemble_weights[2]
+                        field_name: ensemble_weights[i]
+                        for i, field_name in enumerate(MODEL_MAPPING.values())
                     },
                     'council_weights': result['council_weights'],
                     'drift_count': 1,  # In production: increment from Firebase
@@ -677,12 +674,6 @@ def evaluate_pending_predictions(n: int = 10):
                     drift_dict = {
                         'date': pred_date_str,
                         'row_index': 0,
-                        'w_old_before': round(float(old_ensemble_weights[0]), 4),
-                        'w_medium_before': round(float(old_ensemble_weights[1]), 4),
-                        'w_recent_before': round(float(old_ensemble_weights[2]), 4),
-                        'w_old_after': round(float(ensemble_weights[0]), 4),
-                        'w_medium_after': round(float(ensemble_weights[1]), 4),
-                        'w_recent_after': round(float(ensemble_weights[2]), 4),
                         'active_features_before': ','.join(old_active_features),
                         'active_features_after': ','.join(active_features),
                         'fit_pso': result['algorithm_fitnesses']['pso'],
@@ -693,12 +684,16 @@ def evaluate_pending_predictions(n: int = 10):
                         'cw_gwo': result['council_weights']['gwo'],
                         'detected_at': datetime.now(IST).isoformat()
                     }
+                    for i, field_name in enumerate(MODEL_MAPPING.values()):
+                        drift_dict[f'w_{field_name}_before'] = round(float(old_ensemble_weights[i]), 4)
+                        drift_dict[f'w_{field_name}_after'] = round(float(ensemble_weights[i]), 4)
                     firebase_client.save_drift_event(drift_dict)
                     
                     state_update = {
                         'active_features': active_features,
                         'ensemble_weights': {
-                            'old': ensemble_weights[0], 'medium': ensemble_weights[1], 'recent': ensemble_weights[2]
+                            field_name: ensemble_weights[i]
+                            for i, field_name in enumerate(MODEL_MAPPING.values())
                         },
                         'council_weights': result['council_weights'],
                         'drift_count': 1,

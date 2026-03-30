@@ -39,7 +39,8 @@ const Utils = {
                     accuracies: [],
                     w_old: [],
                     w_medium: [],
-                    w_recent: []
+                    w_recent: [],
+                    w_logistic: []
                 };
             }
 
@@ -51,6 +52,7 @@ const Utils = {
             if (item.w_old !== undefined) grouped[key].w_old.push(item.w_old);
             if (item.w_medium !== undefined) grouped[key].w_medium.push(item.w_medium);
             if (item.w_recent !== undefined) grouped[key].w_recent.push(item.w_recent);
+            if (item.w_logistic !== undefined) grouped[key].w_logistic.push(item.w_logistic);
         });
 
         return Object.keys(grouped).sort().map(key => {
@@ -62,7 +64,8 @@ const Utils = {
                 avgBrierScore: avg(g.accuracies) * 100,
                 avgWeightOld: avg(g.w_old),
                 avgWeightMedium: avg(g.w_medium),
-                avgWeightRecent: avg(g.w_recent)
+                avgWeightRecent: avg(g.w_recent),
+                avgWeightLogistic: avg(g.w_logistic)
             };
         });
     },
