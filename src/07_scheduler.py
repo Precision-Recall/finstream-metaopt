@@ -70,7 +70,8 @@ DATA_DIR = os.getenv('DATA_DIR', 'data/processed')
 ALL_FEATURES = [
     'RSI_14', 'MACD', 'MACD_Signal', 'MACD_Diff',
     'BB_Position', 'MA_5_20_Ratio',
-    'Volume_Change_Pct', 'Yesterday_Return'
+    'Volume_Change_Pct', 'Yesterday_Return',
+    'MA_50', 'MA_200', 'Institutional_Flow'
 ]
 
 # Global state (loaded at startup)
@@ -173,64 +174,24 @@ def engineer_today_features() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataF
             logger.info("Market holiday — skipping prediction")
             return None, "market_holiday"
         
-        # Fetch last 60 days of NIFTY data using retry wrapper
-        hist = yf_fetch_with_retry(NIFTY_TICKER, period='60d')
+        # Fetch last 2 years of NIFTY data using retry wrapper to ensure enough history for MA_200
+        hist = yf_fetch_with_retry(NIFTY_TICKER, period='2y')
         
         if hist is None or len(hist) == 0:
             logger.error("Failed to fetch NIFTY data")
             return None, None, "yfinance_returned_empty_dataframe"
         
         # Engineer features
-        close = hist['Close']
-        high = hist['High']
-        low = hist['Low']
-        volume = hist['Volume']
-        
-        # RSI_14
-        rsi = ta.momentum.RSIIndicator(close, window=14).rsi()
-        
-        # MACD
-        macd_ind = ta.trend.MACD(close)
-        macd = macd_ind.macd()
-        macd_signal = macd_ind.macd_signal()
-        macd_diff = macd_ind.macd_diff()
-        
-        # Bollinger Bands
-        bb = ta.volatility.BollingerBands(close, window=20, window_dev=2)
-        bb_high = bb.bollinger_hband()
-        bb_low = bb.bollinger_lband()
-        bb_position = (close - bb_low) / (bb_high - bb_low)
-        
-        # Moving Average Ratio
-        ma_5 = close.rolling(5).mean()
-        ma_20 = close.rolling(20).mean()
-        ma_ratio = ma_5 / ma_20
-        
-        # Volume Change %
-        vol_change = volume.pct_change().clip(-2, 2)
-        
-        # Yesterday Return
-        yesterday_return = close.pct_change()
-        
-        # Combine into DataFrame
-        df = pd.DataFrame({
-            'RSI_14': rsi,
-            'MACD': macd,
-            'MACD_Signal': macd_signal,
-            'MACD_Diff': macd_diff,
-            'BB_Position': bb_position,
-            'MA_5_20_Ratio': ma_ratio,
-            'Volume_Change_Pct': vol_change,
-            'Yesterday_Return': yesterday_return
-        })
+        df = engineer_features(hist)
         
         # Drop NaN and take last row
         df = df.dropna()
         if len(df) == 0:
             logger.error("No valid features after dropping NaN")
-            return None, "no_valid_features_after_dropna"
+            return None, None, "no_valid_features_after_dropna"
         
-        features_today = df.iloc[[-1]]  # Last row as DataFrame
+        # Keep only the features we need
+        features_today = df.iloc[[-1]][ALL_FEATURES]
         logger.info(f"✓ Features engineered for {len(df)} days available")
         return features_today, hist, ""
     
@@ -474,6 +435,9 @@ def daily_evaluate():
                     'MA_5_20_Ratio': [1.0] * 60,
                     'Volume_Change_Pct': [0.01] * 60,
                     'Yesterday_Return': [0.005] * 60,
+                    'MA_50': [100.0] * 60,
+                    'MA_200': [100.0] * 60,
+                    'Institutional_Flow': [0.5] * 60,
                     'Target': [1] * 60  # Mock truth values
                 })
                 
@@ -659,6 +623,7 @@ def evaluate_pending_predictions(n: int = 10):
                         'RSI_14': [0.5] * 60, 'MACD': [0.0] * 60, 'MACD_Signal': [0.0] * 60,
                         'MACD_Diff': [0.0] * 60, 'BB_Position': [0.5] * 60, 'MA_5_20_Ratio': [1.0] * 60,
                         'Volume_Change_Pct': [0.01] * 60, 'Yesterday_Return': [0.005] * 60,
+                        'MA_50': [100.0] * 60, 'MA_200': [100.0] * 60, 'Institutional_Flow': [0.5] * 60,
                         'Target': [1] * 60
                     })
                     
