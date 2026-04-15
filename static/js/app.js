@@ -785,6 +785,28 @@ document.addEventListener('DOMContentLoaded', () => {
 function formatDate(dateStr) {
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+// ═══════════════════════════════════════════════════════
+// Utility Functions
+// ═══════════════════════════════════════════════════════
+
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
         year: 'numeric',
         month: 'short',
         day: 'numeric',
