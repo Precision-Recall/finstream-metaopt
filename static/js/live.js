@@ -128,3 +128,180 @@ window.APP = {
 };
 
 console.log('?? Tip: Use window.APP.getState() to inspect application state in console');
+
+/**
+ * ═══════════════════════════════════════════════════════
+ * FULLSCREEN CHART MODAL FUNCTIONS
+ * ═══════════════════════════════════════════════════════
+ */
+
+var fullscreenChartInstance = null;
+var fullscreenSourceCanvas = null;
+
+/**
+ * Open chart in fullscreen mode
+ * @param {string} canvasId - ID of the canvas to expand
+ * @param {string} chartTitle - Title for the fullscreen modal
+ */
+function openChartFullscreen(canvasId, chartTitle) {
+    const sourceCanvas = document.getElementById(canvasId);
+    if (!sourceCanvas) {
+        console.warn(`Canvas not found: ${canvasId}`);
+        return;
+    }
+    
+    fullscreenSourceCanvas = canvasId;
+    const overlay = document.getElementById('chartFullscreenOverlay');
+    const title = document.getElementById('fullscreenTitle');
+    const fsCanvas = document.getElementById('fullscreenChartCanvas');
+    
+    // Update title
+    title.textContent = chartTitle;
+    
+    // Show overlay
+    overlay.classList.add('active');
+    
+    // Get source chart instance
+    const sourceChartInstance = Renderers.chartInstances[canvasId];
+    
+    // Clone chart data and create new instance
+    setTimeout(() => {
+        if (sourceChartInstance) {
+            // Create new chart with same config but larger
+            const fsCtx = fsCanvas.getContext('2d');
+            fullscreenChartInstance = new Chart(fsCtx, {
+                type: sourceChartInstance.config.type,
+                data: JSON.parse(JSON.stringify(sourceChartInstance.data)),
+                options: {
+                    ...sourceChartInstance.options,
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        ...sourceChartInstance.options.plugins,
+                        legend: {
+                            ...sourceChartInstance.options.plugins?.legend,
+                            position: 'top',
+                            labels: {
+                                ...sourceChartInstance.options.plugins?.legend?.labels,
+                                boxWidth: 15,
+                                padding: 20,
+                                font: { size: 14 }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Adjust canvas size
+        fsCanvas.style.width = '100%';
+        fsCanvas.style.height = '100%';
+        
+        // Focus on modal
+        overlay.focus();
+    }, 100);
+}
+
+/**
+ * Close fullscreen chart modal
+ */
+function closeChartFullscreen() {
+    const overlay = document.getElementById('chartFullscreenOverlay');
+    overlay.classList.remove('active');
+    
+    // Destroy fullscreen chart instance
+    if (fullscreenChartInstance) {
+        fullscreenChartInstance.destroy();
+        fullscreenChartInstance = null;
+    }
+    
+    fullscreenSourceCanvas = null;
+}
+
+/**
+ * Export current fullscreen chart as PNG
+ */
+function exportChart() {
+    const fsCanvas = document.getElementById('fullscreenChartCanvas');
+    const title = document.getElementById('fullscreenTitle').textContent;
+    const timestamp = new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+    const filename = `${title.replace(/\s+/g, '_')}_${timestamp}.png`;
+    
+    const link = document.createElement('a');
+    link.href = fsCanvas.toDataURL('image/png');
+    link.download = filename;
+    link.click();
+}
+
+/**
+ * Export fullscreen chart as PDF with data
+ */
+function exportChartPDF() {
+    const fsCanvas = document.getElementById('fullscreenChartCanvas');
+    const title = document.getElementById('fullscreenTitle').textContent;
+    const timestamp = new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+    const filename = `${title.replace(/\s+/g, '_')}_${timestamp}.pdf`;
+    
+    // Get chart image
+    const chartImage = fsCanvas.toDataURL('image/png');
+    
+    // Get state data for info
+    const state = getState ? getState() : {};
+    const currentDate = new Date().toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+    
+    // Create PDF content
+    const element = document.createElement('div');
+    element.innerHTML = `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+            <h1 style="text-align: center; color: #333; margin-bottom: 10px;">${title}</h1>
+            <p style="text-align: center; color: #666; margin-bottom: 20px;">Exported: ${currentDate}</p>
+            <img src="${chartImage}" style="width: 100%; max-width: 800px; margin: 30px auto; display: block; border: 1px solid #ccc; padding: 10px;" />
+            <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+                <p><strong>Chart Title:</strong> ${title}</p>
+                <p><strong>Export Date:</strong> ${currentDate}</p>
+                <p style="margin-top: 20px; font-style: italic;">This PDF was automatically generated from the Concept Drift Monitor dashboard.</p>
+            </div>
+        </div>
+    `;
+    
+    // PDF options
+    const opt = {
+        margin: 10,
+        filename: filename,
+        image: { type: 'png', quality: 0.98 },
+        html2canvas: { scale: 2, logging: false },
+        jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
+    };
+    
+    // Generate PDF
+    html2pdf().set(opt).from(element).save();
+}
+
+/**
+ * Handle keyboard shortcuts (ESC to close)
+ */
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const overlay = document.getElementById('chartFullscreenOverlay');
+        if (overlay?.classList.contains('active')) {
+            closeChartFullscreen();
+        }
+    }
+});
+
+/**
+ * Close modal when clicking outside the content
+ */
+document.addEventListener('click', (e) => {
+    const overlay = document.getElementById('chartFullscreenOverlay');
+    if (e.target === overlay && overlay.classList.contains('active')) {
+        closeChartFullscreen();
+    }
+});
