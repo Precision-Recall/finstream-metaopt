@@ -2,6 +2,21 @@
 
 ---
 
+## Table of Contents
+
+- [Abstract](#abstract)
+- [1. Introduction to the Problem](#1-introduction-to-the-problem)
+- [2. Description of Existing Work](#2-description-of-existing-work)
+- [3. Theoretical Comparison Between Existing and Proposed Methodology](#3-theoretical-comparison-between-existing-and-proposed-methodology)
+- [4. Proposed Methodology](#4-proposed-methodology)
+- [5. Implementation Details](#5-implementation-details)
+- [6. Comparative Study Between Existing and Proposed Work](#6-comparative-study-between-existing-and-proposed-work)
+- [7. Conclusion with Possible Future Enhancement Suggestions](#7-conclusion-with-possible-future-enhancement-suggestions)
+- [8. Appendix](#8-appendix)
+- [References](#references)
+
+---
+
 ## Abstract
 
 Financial markets are inherently non-stationary environments where the statistical properties of data distributions shift over time — a phenomenon known as concept drift. Traditional machine learning models trained on historical data often suffer significant performance degradation when deployed in live market conditions due to these distributional shifts. This report presents **Finstream MetaOpt**, an adaptive machine learning system that combines a temporal ensemble of diverse classifiers (XGBoost, LightGBM, ExtraTrees, and Logistic Regression) with a Meta-Heuristic Optimization (MHO) Council comprising Particle Swarm Optimization (PSO), Genetic Algorithm (GA), and Grey Wolf Optimizer (GWO). The system continuously monitors the streaming NIFTY 50 index data for concept drift using a dual-window sliding detector and triggers automatic reoptimization of ensemble weights when drift is detected. Experimental evaluation over the 2020–2025 test period — which includes the COVID-19 market crash — demonstrates that the adaptive system consistently outperforms its static counterpart in Brier Score accuracy, achieving a rolling 30-day Brier Score that remains above 80% throughout most of the evaluation period. The system is deployed as a live prediction service with daily predictions at 09:30 IST, a Flask-based monitoring dashboard, Firebase Firestore persistence, and an AI-powered chatbot for interactive data queries.
@@ -112,50 +127,33 @@ The proposed system, **Finstream MetaOpt**, consists of five major components:
 
 ### 4.2 System Architecture
 
-```
-Yahoo Finance (yfinance)
-        │
-        ▼
-┌───────────────────┐
-│   Data Pipeline   │  download → feature engineering → target generation → train/test split
-└────────┬──────────┘
-         │  data/processed/train.csv  (2015–2019)
-         │  data/processed/test.csv   (2020–present)
-         ▼
-┌───────────────────────────────────────┐
-│        Temporal Ensemble              │
-│  ┌──────────┐ ┌──────────┐ ┌───────┐ │
-│  │ XGBoost  │ │ LightGBM │ │Extra  │ │
-│  │(primary) │ │(gradient)│ │Trees  │ │
-│  └────┬─────┘ └────┬─────┘ └───┬───┘ │
-│       └────────────┴───────────┘     │
-│         weighted ensemble predict    │
-└──────────────────┬────────────────────┘
-                   │
-         ┌─────────▼──────────┐
-         │  Sliding Window    │  Dual-window drift detection
-         │  Drift Detector    │  + periodic fallback
-         └─────────┬──────────┘
-                   │ drift detected
-                   ▼
-     ┌─────────────────────────────────┐
-     │          MHO Council            │
-     │  ┌───────┐ ┌──────┐ ┌───────┐  │
-     │  │  PSO  │ │  GA  │ │  GWO  │  │
-     │  └───┬───┘ └──┬───┘ └───┬───┘  │
-     │      └────────┼─────────┘      │
-     │      Winner-Takes-All           │
-     └─────────────────────────────────┘
-                   │ updated weights
-                   ▼
-         ┌─────────────────┐
-         │    Firebase     │  Firestore (REST API)
-         │    Firestore    │
-         └────────┬────────┘
-                  │
-         ┌────────▼────────┐
-         │  Flask Dashboard│  + AI Chatbot
-         └─────────────────┘
+```mermaid
+graph TD
+    A["Yahoo Finance (yfinance)"] --> B["Data Pipeline<br/>download → feature engineering → target generation → train/test split"]
+    B -->|"train.csv (2015–2019)<br/>test.csv (2020–present)"| C
+
+    subgraph C ["Temporal Ensemble"]
+        C1["XGBoost<br/>(primary)"]
+        C2["LightGBM<br/>(gradient)"]
+        C3["ExtraTrees"]
+        C4["Logistic<br/>Regression"]
+    end
+
+    C -->|"weighted ensemble predict"| D["Sliding Window Drift Detector<br/>Dual-window detection + periodic fallback"]
+    D -->|"drift detected"| E
+
+    subgraph E ["MHO Council"]
+        E1["PSO"]
+        E2["GA"]
+        E3["GWO"]
+        E4["Winner-Takes-All Aggregation"]
+        E1 --> E4
+        E2 --> E4
+        E3 --> E4
+    end
+
+    E -->|"updated weights"| F["Firebase Firestore<br/>(REST API)"]
+    F --> G["Flask Dashboard + AI Chatbot"]
 ```
 
 ### 4.3 Feature Engineering
