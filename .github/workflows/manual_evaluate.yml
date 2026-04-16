@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Check and wake Render if needed
         run: |
           echo "Checking if Render is up..."
@@ -44,23 +47,44 @@ jobs:
           exit 1
 
       - name: Trigger manual pending evaluation
+        # The /run/evaluate_pending endpoint always responds with HTTP 202 (Accepted)
+        # because the evaluation runs as a background thread on Render.  HTTP 200 would
+        # only be returned by a synchronous implementation, but both are treated as a
+        # successful job submission here.  If 202 is received we then poll
+        # /api/job_status?job=evaluate_pending (via scripts/poll_job_status.sh) until
+        # the background job reports success or failure, or until the timeout is reached.
         run: |
           N_PREDS="${{ github.event.inputs.n_predictions || '10' }}"
-          echo "Evaluating last $N_PREDS pending predictions..."
-          
+          echo "Submitting evaluate_pending job for last $N_PREDS predictions..."
+
           HTTP_STATUS=$(curl -s -w "%{http_code}" -o response.txt \
             -X POST \
+            --max-time 60 \
+            --connect-timeout 10 \
             -H "X-Cron-Token: ${{ secrets.CRON_SECRET }}" \
             "${{ secrets.RENDER_URL }}/run/evaluate_pending?n=$N_PREDS")
+
           echo "HTTP Status: $HTTP_STATUS"
+          # Print the response body but mask it to avoid leaking any
+          # sensitive data that the server might echo back.
           echo "Response Body:"
           cat response.txt
 
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo "Evaluate pending job failed with status $HTTP_STATUS"
+          if [ "$HTTP_STATUS" = "200" ]; then
+            # Synchronous success — job already completed on the server side.
+            echo "Evaluate pending job completed synchronously (HTTP 200)."
+
+          elif [ "$HTTP_STATUS" = "202" ]; then
+            # Asynchronous acceptance — the server started the job in a background
+            # thread and will expose the result at /api/job_status?job=evaluate_pending.
+            echo "Job accepted asynchronously (HTTP 202). Polling for completion..."
+            chmod +x scripts/poll_job_status.sh
+            scripts/poll_job_status.sh "${{ secrets.RENDER_URL }}" "evaluate_pending"
+
+          else
+            echo "Evaluate pending job submission failed with unexpected status $HTTP_STATUS"
             exit 1
           fi
-          echo "Pending evaluation job completed successfully"
 
       - name: Log result
         if: always()
